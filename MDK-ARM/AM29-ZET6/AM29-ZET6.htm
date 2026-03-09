@@ -3,7 +3,7 @@
 <title>Static Call Graph - [AM29-ZET6\AM29-ZET6.axf]</title></head>
 <body><HR>
 <H1>Static Call Graph for image AM29-ZET6\AM29-ZET6.axf</H1><HR>
-<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 5060960: Last Updated: Fri Mar 06 17:12:37 2026
+<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 5060960: Last Updated: Mon Mar 09 14:44:22 2026
 <BR><P>
 <H3>Maximum Stack Usage =      10480 bytes + Unknown(Cycles, Untraceable Function Pointers)</H3><H3>
 Call chain for Maximum Stack Depth:</H3>
@@ -771,7 +771,6 @@ Global Symbols
 <LI><a href="#[82]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;AM29LV320_Read_CFI_Capacity
 <LI><a href="#[7d]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;AM29LV320_Chip_Erase
 <LI><a href="#[1b3]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;switch_to_udisk
-<LI><a href="#[c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;STORAGE_Write_FS
 <LI><a href="#[11a]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SD_InitCard
 </UL>
 
@@ -1281,7 +1280,6 @@ Global Symbols
 <LI><a href="#[116]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;SDIO_PowerState_OFF
 </UL>
 <BR>[Called By]<UL><LI><a href="#[1b3]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;switch_to_udisk
-<LI><a href="#[c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;STORAGE_Write_FS
 </UL>
 
 <P><STRONG><a name="[163]"></a>HAL_SD_GetCardCSD</STRONG> (Thumb, 402 bytes, Stack size 20 bytes, stm32f1xx_hal_sd.o(i.HAL_SD_GetCardCSD))
@@ -1303,11 +1301,12 @@ Global Symbols
 <LI><a href="#[10f]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;SDIO_GetResponse
 </UL>
 <BR>[Called By]<UL><LI><a href="#[a3]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;BSP_SD_GetCardState
+<LI><a href="#[c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;STORAGE_Write_FS
+<LI><a href="#[b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;STORAGE_Read_FS
 </UL>
 
 <P><STRONG><a name="[164]"></a>HAL_SD_GetState</STRONG> (Thumb, 6 bytes, Stack size 0 bytes, stm32f1xx_hal_sd.o(i.HAL_SD_GetState))
 <BR><BR>[Called By]<UL><LI><a href="#[5d]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
-<LI><a href="#[c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;STORAGE_Write_FS
 <LI><a href="#[9]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;STORAGE_IsReady_FS
 </UL>
 
@@ -2470,9 +2469,6 @@ Global Symbols
 <LI><a href="#[168]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;UART_Menu_Show
 <LI><a href="#[146]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MX_SDIO_SD_Init
 <LI><a href="#[97]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;AM29_Get_Id_And_Read10
-<LI><a href="#[c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;STORAGE_Write_FS
-<LI><a href="#[b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;STORAGE_Read_FS
-<LI><a href="#[a]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;STORAGE_IsWriteProtected_FS
 <LI><a href="#[9]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;STORAGE_IsReady_FS
 </UL>
 
@@ -2867,8 +2863,8 @@ Local Symbols
 <BR>[Called By]<UL><LI><a href="#[4]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;USBD_FS_SerialStrDescriptor
 </UL>
 
-<P><STRONG><a name="[8]"></a>STORAGE_GetCapacity_FS</STRONG> (Thumb, 76 bytes, Stack size 56 bytes, usbd_storage_if.o(i.STORAGE_GetCapacity_FS))
-<BR><BR>[Stack]<UL><LI>Max Depth = 56<LI>Call Chain = STORAGE_GetCapacity_FS
+<P><STRONG><a name="[8]"></a>STORAGE_GetCapacity_FS</STRONG> (Thumb, 32 bytes, Stack size 48 bytes, usbd_storage_if.o(i.STORAGE_GetCapacity_FS))
+<BR><BR>[Stack]<UL><LI>Max Depth = 48<LI>Call Chain = STORAGE_GetCapacity_FS
 </UL>
 <BR>[Calls]<UL><LI><a href="#[a2]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SD_GetCardInfo
 </UL>
@@ -2888,29 +2884,22 @@ Local Symbols
 </UL>
 <BR>[Address Reference Count : 1]<UL><LI> usbd_storage_if.o(.data)
 </UL>
-<P><STRONG><a name="[a]"></a>STORAGE_IsWriteProtected_FS</STRONG> (Thumb, 14 bytes, Stack size 8 bytes, usbd_storage_if.o(i.STORAGE_IsWriteProtected_FS))
-<BR><BR>[Stack]<UL><LI>Max Depth = 32<LI>Call Chain = STORAGE_IsWriteProtected_FS &rArr; __2printf
-</UL>
-<BR>[Calls]<UL><LI><a href="#[7f]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__2printf
-</UL>
+<P><STRONG><a name="[a]"></a>STORAGE_IsWriteProtected_FS</STRONG> (Thumb, 4 bytes, Stack size 0 bytes, usbd_storage_if.o(i.STORAGE_IsWriteProtected_FS))
 <BR>[Address Reference Count : 1]<UL><LI> usbd_storage_if.o(.data)
 </UL>
-<P><STRONG><a name="[b]"></a>STORAGE_Read_FS</STRONG> (Thumb, 40 bytes, Stack size 16 bytes, usbd_storage_if.o(i.STORAGE_Read_FS))
-<BR><BR>[Stack]<UL><LI>Max Depth = 116<LI>Call Chain = STORAGE_Read_FS &rArr; HAL_SD_ReadBlocks &rArr; SDMMC_CmdStopTransfer &rArr; SDMMC_GetCmdResp1
+<P><STRONG><a name="[b]"></a>STORAGE_Read_FS</STRONG> (Thumb, 28 bytes, Stack size 8 bytes, usbd_storage_if.o(i.STORAGE_Read_FS))
+<BR><BR>[Stack]<UL><LI>Max Depth = 108<LI>Call Chain = STORAGE_Read_FS &rArr; HAL_SD_ReadBlocks &rArr; SDMMC_CmdStopTransfer &rArr; SDMMC_GetCmdResp1
 </UL>
 <BR>[Calls]<UL><LI><a href="#[aa]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SD_ReadBlocks
-<LI><a href="#[7f]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__2printf
+<LI><a href="#[a4]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SD_GetCardState
 </UL>
 <BR>[Address Reference Count : 1]<UL><LI> usbd_storage_if.o(.data)
 </UL>
-<P><STRONG><a name="[c]"></a>STORAGE_Write_FS</STRONG> (Thumb, 92 bytes, Stack size 24 bytes, usbd_storage_if.o(i.STORAGE_Write_FS))
-<BR><BR>[Stack]<UL><LI>Max Depth = 148<LI>Call Chain = STORAGE_Write_FS &rArr; HAL_SD_WriteBlocks &rArr; SDMMC_CmdWriteSingleBlock &rArr; SDMMC_GetCmdResp1
+<P><STRONG><a name="[c]"></a>STORAGE_Write_FS</STRONG> (Thumb, 28 bytes, Stack size 8 bytes, usbd_storage_if.o(i.STORAGE_Write_FS))
+<BR><BR>[Stack]<UL><LI>Max Depth = 132<LI>Call Chain = STORAGE_Write_FS &rArr; HAL_SD_WriteBlocks &rArr; SDMMC_CmdWriteSingleBlock &rArr; SDMMC_GetCmdResp1
 </UL>
 <BR>[Calls]<UL><LI><a href="#[ac]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SD_WriteBlocks
-<LI><a href="#[164]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SD_GetState
-<LI><a href="#[115]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SD_DeInit
-<LI><a href="#[84]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_Delay
-<LI><a href="#[7f]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__2printf
+<LI><a href="#[a4]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SD_GetCardState
 </UL>
 <BR>[Address Reference Count : 1]<UL><LI> usbd_storage_if.o(.data)
 </UL>

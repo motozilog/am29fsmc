@@ -198,32 +198,15 @@ int8_t STORAGE_Init_FS(uint8_t lun)
 int8_t STORAGE_GetCapacity_FS(uint8_t lun, uint32_t *block_num, uint16_t *block_size)
 {
   /* USER CODE BEGIN 3 */
-//  printf("STORAGE_GetCapacity_FS - LUN:%d\r\n", lun);
+	HAL_SD_CardInfoTypeDef info;
+  int8_t ret = -1;
 
-// 检查TF卡是否初始化成功
-  if (g_tf_block_num == 0 || g_tf_block_size == 0) {
-    // 如果未获取到真实容量，尝试重新获取
-    HAL_SD_CardInfoTypeDef info;
-    if (HAL_SD_GetCardInfo(&hsd, &info) == HAL_OK) {
-      if (info.LogBlockNbr > 0 && info.LogBlockSize > 0) {
-        g_tf_block_num = info.LogBlockNbr;
-        g_tf_block_size = info.LogBlockSize;
-      } else if (info.BlockNbr > 0 && info.BlockSize > 0) {
-        g_tf_block_num = info.BlockNbr;
-        g_tf_block_size = info.BlockSize;
-      }
-    }
-  }
-  
-  // 使用真实的TF卡容量
-  *block_num  = g_tf_block_num;
-  *block_size = g_tf_block_size;
-  
-//  printf("TF卡容量返回：块数=%lu, 块大小=%u, 总容量=%llu MB\r\n", 
-//         (unsigned long)*block_num, *block_size,
-//         (unsigned long long)(*block_num) * (*block_size) / 1024 / 1024);
-  
-  return (USBD_OK);
+  HAL_SD_GetCardInfo(&hsd, &info);
+
+  *block_num =  info.LogBlockNbr  - 1;
+  *block_size = info.LogBlockSize;
+  ret = 0;
+  return ret;
   /* USER CODE END 3 */
 }
 
@@ -257,7 +240,7 @@ int8_t STORAGE_IsReady_FS(uint8_t lun)
 int8_t STORAGE_IsWriteProtected_FS(uint8_t lun)
 {
   /* USER CODE BEGIN 5 */
-	  printf("STORAGE_IsWriteProtected_FS - LUN:%d\r\n", lun);
+	//printf("STORAGE_IsWriteProtected_FS - LUN:%d\r\n", lun);
 
 
   return (USBD_OK);
@@ -272,18 +255,14 @@ int8_t STORAGE_IsWriteProtected_FS(uint8_t lun)
 int8_t STORAGE_Read_FS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t blk_len)
 {
   /* USER CODE BEGIN 6 */
-	HAL_StatusTypeDef status;
-  
-  // 使用HAL库的SDIO读函数
-  status = HAL_SD_ReadBlocks(&hsd, buf, blk_addr, blk_len, HAL_MAX_DELAY);
-  
-  if (status == HAL_OK) {
-    return (USBD_OK);
-  } else {
-    printf("TF卡读错误：地址=%lu, 块数=%u, 状态=%d\r\n", 
-           (unsigned long)blk_addr, blk_len, status);
-    return (USBD_FAIL);
-  }
+	int8_t ret = -1;
+
+  HAL_SD_ReadBlocks(&hsd, buf, blk_addr, blk_len, HAL_MAX_DELAY);
+
+  /* Wait until SD card is ready to use for new operation */
+  while (HAL_SD_GetCardState(&hsd) != HAL_SD_CARD_TRANSFER){}
+  ret = 0;
+  return ret;
   /* USER CODE END 6 */
 }
 
@@ -295,32 +274,16 @@ int8_t STORAGE_Read_FS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t bl
 int8_t STORAGE_Write_FS(uint8_t lun, uint8_t *buf, uint32_t blk_addr, uint16_t blk_len)
 {
   /* USER CODE BEGIN 7 */
-	HAL_StatusTypeDef status;
-  
-  uint32_t timeout = 30000;  // 增加超时时间
 
-	  // 检查SD卡状态
-  if (HAL_SD_GetState(&hsd) != HAL_SD_STATE_READY) {
-    printf("SD卡未就绪，尝试重新初始化...\r\n");
-    HAL_SD_DeInit(&hsd);
-    HAL_Delay(100);
-    //MX_SDIO_SD_Init();
-  }
-	
-  // 使用HAL库的SDIO写函数
-  status = HAL_SD_WriteBlocks(&hsd, buf, blk_addr, blk_len, timeout);
-  
-  if (status == HAL_OK) {
-    // 等待操作完成
-    while(HAL_SD_GetState(&hsd) != HAL_SD_STATE_READY) {
-      HAL_Delay(1);
-    }
-    return (USBD_OK);
-  } else {
-    printf("TF卡写错误：地址=%lu, 块数=%u, 状态=%d\r\n", 
-           (unsigned long)blk_addr, blk_len, status);
-    return (USBD_FAIL);
-  }
+	int8_t ret = -1;
+
+   HAL_SD_WriteBlocks(&hsd, buf, blk_addr, blk_len, HAL_MAX_DELAY);
+
+
+  /* Wait until SD card is ready to use for new operation */
+  while (HAL_SD_GetCardState(&hsd) != HAL_SD_CARD_TRANSFER){}
+  ret = 0;
+  return ret;
   /* USER CODE END 7 */
 }
 

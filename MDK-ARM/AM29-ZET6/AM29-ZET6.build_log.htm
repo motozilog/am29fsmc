@@ -27,20 +27,14 @@ Project File Date:  03/02/2026
 <h2>Output:</h2>
 *** Using Compiler 'V5.06 update 7 (build 960)', folder: 'C:\Keil_v5\ARM\ARMCC\Bin'
 Build target 'AM29-ZET6'
-compiling main.c...
-../Core/Src/main.c(721): warning:  #177-D: variable "dummy"  was declared but never referenced
-      uint8_t dummy;
-../Core/Src/main.c(723): warning:  #177-D: variable "status"  was declared but never referenced
-      USBD_StatusTypeDef status;
-../Core/Src/main.c(1305): warning:  #550-D: variable "q6_prev"  was set but never used
-      uint8_t q6_prev = 0;
-../Core/Src/main.c(88): warning:  #550-D: variable "g_tick_step_us"  was set but never used
-  static uint32_t g_tick_step_us = 0;   // Tick递增步长（us，仅作为备用参数）
-../Core/Src/main.c: 4 warnings, 0 errors
+compiling usbd_storage_if.c...
+../USB_DEVICE/App/usbd_storage_if.c(231): warning:  #111-D: statement is unreachable
+    return (USBD_OK);
+../USB_DEVICE/App/usbd_storage_if.c: 1 warning, 0 errors
 linking...
-Program Size: Code=43166 RO-data=946 RW-data=356 ZI-data=30948  
+Program Size: Code=42866 RO-data=946 RW-data=356 ZI-data=30948  
 FromELF: creating hex file...
-"AM29-ZET6\AM29-ZET6.axf" - 0 Error(s), 4 Warning(s).
+"AM29-ZET6\AM29-ZET6.axf" - 0 Error(s), 1 Warning(s).
 
 <h2>Software Packages used:</h2>
 
