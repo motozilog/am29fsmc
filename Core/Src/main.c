@@ -148,12 +148,17 @@ static void MX_RTC_Init(void); //RTC初始化声明
 void AM29LV320_Read_Data(uint16_t addr_halfword, uint16_t len, uint16_t *buf);
 uint16_t AM29LV320_Read_0x0000(void); // 快速读取0x0000地址内容
 
-// 新增：CFI容量读取函数声明
+// CFI容量读取函数声明
 uint16_t AM29LV320_Read_CFI_Capacity(void); // 读取CFI容量原始值
 uint32_t AM29LV320_Parse_CFI_Capacity(uint16_t cfi_value); // 解析CFI容量值为实际字节数
 
+//读取到文件
+uint8_t AM29Read_To_File(void);
+
 
 uint8_t AM29LV320_Chip_Erase(void); // 整芯片擦除函数声明
+
+uint32_t rtc_to_unix_timestamp(RTC_DateTypeDef *date, RTC_TimeTypeDef *time);
 
 void delayns_init(void);
 void delayns(uint32_t ns);
@@ -162,6 +167,10 @@ void delaycmd(void);
 AM29_File_Info_t* AM29_List_Bin_Files(uint8_t *file_count);
 
 uint8_t AM29LV320_Write_Data(uint32_t addr, uint16_t data);
+
+uint8_t AM29LV320_Check_Blank(uint32_t start_addr, uint32_t check_len, uint8_t show_details);
+uint8_t AM29LV320_Check_Start_Area(uint8_t ask_user);
+
 uint8_t AM29LV320_Write_Data_From_File(const char *filename);
 uint8_t AM29LV320_Write_Data_From_File_Little_End_For_MD(const char *filename);
 
@@ -217,7 +226,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 	MX_RTC_Init();
 
-  // 启动时强制将USB D+引脚拉低，防止主机检测到设备
+  // 启动时强制将USB D+引脚拉低，防止主机检测到设备 START
   printf("初始化USB引脚为低电平，防止提前检测...\r\n");
   
   // 将PA12配置为输出推挽，并输出低电平
@@ -234,70 +243,44 @@ int main(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+	// 启动时强制将USB D+引脚拉低，防止主机检测到设备 END
+	
 
   // 启动时通过USART1发送hello（波特率115200）
   printf("AM29 Programmer By motozilog V1.0\r\n");
 	
-/* TF START */
-// 初始化后检测TF卡状态
-printf("SDIO状态：%d\r\n", HAL_SD_GetState(&hsd));
+	/* TF START */
+	// 初始化后检测TF卡状态
+	printf("SDIO状态：%d\r\n", HAL_SD_GetState(&hsd));
 
-// 读取真实卡信息
-if(HAL_SD_GetCardInfo(&hsd, &card_info) == HAL_OK)
-{
-    // 优先使用逻辑块（兼容USB MSC）
-    if(card_info.LogBlockNbr > 0 && card_info.LogBlockSize > 0)
-    {
-        g_tf_block_num = card_info.LogBlockNbr;
-        g_tf_block_size = card_info.LogBlockSize;
-    }
-    // 备用：逻辑块为0时用物理块
-    else if(card_info.BlockNbr > 0 && card_info.BlockSize > 0)
-    {
-        g_tf_block_num = card_info.BlockNbr;
-        g_tf_block_size = card_info.BlockSize;
-    }
-    // 打印真实容量（验证）
-    uint64_t real_bytes = (uint64_t)g_tf_block_num * g_tf_block_size;
-    uint32_t real_mb = (uint32_t)(real_bytes / 1024 / 1024);
-    printf("SDIO读取真实容量：%u MB\r\n", real_mb);
-}
-else
-{
-    printf("读取TF卡信息失败，使用默认容量（谨慎！）\r\n");
-    // 设置默认容量以防万一
-    g_tf_block_num = 0;
-    g_tf_block_size = 0;
-}
-/* TF END */
-
-
-	
-		// 替换原有调用：获取文件列表并打印
-		uint8_t bin_file_cnt = 0;
-		AM29_File_Info_t* bin_file_list = AM29_List_Bin_Files(&bin_file_cnt);
-
-		// 可选：遍历返回的文件列表（验证功能）
-		if(bin_file_list != NULL && bin_file_cnt > 0) {
-				printf("===== 验证返回的文件列表 =====\r\n");
-				for(uint8_t i=0; i<bin_file_cnt; i++) {
-						printf("列表第%d项：%s | %lu字节\r\n", 
-									 i+1, bin_file_list[i].filename, (unsigned long)bin_file_list[i].filesize);
-				}
-		}	
-
-
-		
-		//写入测试
-//		uint8_t write_ret = AM29LV320_Write_Data(0x60000000, 0x1234);
-//		if (write_ret == 0)
-//		{
-//				printf("写入测试成功！\r\n");
-//		}
-//		else
-//		{
-//				printf("写入测试失败，错误码：%d\r\n", write_ret);
-//		}
+	// 读取真实卡信息
+	if(HAL_SD_GetCardInfo(&hsd, &card_info) == HAL_OK)
+	{
+			// 优先使用逻辑块（兼容USB MSC）
+			if(card_info.LogBlockNbr > 0 && card_info.LogBlockSize > 0)
+			{
+					g_tf_block_num = card_info.LogBlockNbr;
+					g_tf_block_size = card_info.LogBlockSize;
+			}
+			// 备用：逻辑块为0时用物理块
+			else if(card_info.BlockNbr > 0 && card_info.BlockSize > 0)
+			{
+					g_tf_block_num = card_info.BlockNbr;
+					g_tf_block_size = card_info.BlockSize;
+			}
+			// 打印真实容量（验证）
+			uint64_t real_bytes = (uint64_t)g_tf_block_num * g_tf_block_size;
+			uint32_t real_mb = (uint32_t)(real_bytes / 1024 / 1024);
+			printf("SDIO读取真实容量：%u MB\r\n", real_mb);
+	}
+	else
+	{
+			printf("读取TF卡信息失败，使用默认容量（谨慎！）\r\n");
+			// 设置默认容量以防万一
+			g_tf_block_num = 0;
+			g_tf_block_size = 0;
+	}
+	/* TF END */
 
   /* USER CODE END 2 */
 
@@ -332,6 +315,9 @@ else
             AM29_Write_And_Verify();
             break;
 				case 4:
+						AM29Read_To_File();
+						break;
+				case 5:
             switch_to_udisk();
             break;
         default:
@@ -706,13 +692,14 @@ static void MX_FSMC_Init(void)
 // 串口菜单交互逻辑（放在BEGIN 4：函数定义区）
 static void UART_Menu_Show(void)
 {
-    printf("\r\n==================== AM29LV320 操作菜单 ====================\r\n");
+    printf("\r\n===== AM29编程器FSMC by motozilog =====\r\n");
     printf("1 - 获取AM29 ID并读取前10字\r\n");
 		printf("2 - 整芯片擦除并查空验证\r\n");
-    printf("3 - 写入BIN文件并校验\r\n");
-    printf("4 - 切换到U盘模式（作为U盘连接电脑）\r\n");
+    printf("3 - 选择BIN文件写入并校验\r\n");
+    printf("4 - 读取AM29芯片内容保存到TF卡\r\n");
+    printf("5 - 切换到U盘模式（作为U盘连接电脑）\r\n");
 
-    printf("============================================================\r\n");
+    printf("=== If Chinese display error, set terminal to GBK(DO NOT USE UTF8). ===\r\n");
     printf("请输入操作编号，按回车确认：");
 }
 
@@ -795,7 +782,7 @@ static void switch_to_udisk(void)
     
     printf("请在电脑上操作U盘，弹出U盘时将重启...\r\n");
     
-    // ========== 修正的弹出检测逻辑 ==========
+    // ========== 弹出检测逻辑 ==========
     uint32_t start_time = HAL_GetTick();
     uint32_t last_usb_state = hUsbDeviceFS.dev_state;
     uint32_t suspend_detected_time = 0;
@@ -825,8 +812,12 @@ static void switch_to_udisk(void)
                 current_state == USBD_STATE_SUSPENDED) {
                 printf("检测到USB挂起，可能是Windows弹出操作\r\n");
                 suspend_detected_time = HAL_GetTick();
+            } else if (last_usb_state == USBD_STATE_ADDRESSED && 
+                current_state == USBD_STATE_SUSPENDED) {
+                printf("检测到USB挂起2，可能是Windows弹出操作\r\n");
+                suspend_detected_time = HAL_GetTick();
             }
-            
+								
             // 检测到断开 (从任何状态变为0或1)
             if (last_usb_state >= USBD_STATE_CONFIGURED && 
                 current_state < USBD_STATE_ADDRESSED) {
@@ -920,12 +911,12 @@ static uint8_t UART_Read_User_Input(void)
                 printf("\r\n");
                 break;
             }
-            // 处理有效字符（仅数字1/2，限制输入长度）
-            else if(input_len < sizeof(input_buf)-1 && (ch == '1' || ch == '2' || ch == '3' || ch == '4')) 
-            {
-                input_buf[input_len++] = ch;
-                HAL_UART_Transmit(&huart1, &ch, 1, HAL_MAX_DELAY); // 回显有效字符
-            }
+            // 处理有效字符
+            else if(input_len < sizeof(input_buf)-1 && (ch >= '1' && ch <= '6')) 
+						{
+								input_buf[input_len++] = ch;
+								HAL_UART_Transmit(&huart1, &ch, 1, HAL_MAX_DELAY); // 回显有效字符
+						}
             // 其他无效字符（不回显、不存储）
             else
             {
@@ -955,10 +946,10 @@ static void AM29_Get_Id_And_Read10(void)
 {
 	  uint32_t am29lv320_id_32bit = 0;
 
-		    // 可选：读取0x0000开始的多个数据（示例读取前5个半字）
+		// 可选：读取0x0000开始的多个数据（示例读取前5个半字）
     uint16_t data_buf[5] = {0};
     AM29LV320_Read_Data(0, 5, data_buf);
-    printf("AM29LV320 0x0000~0x0009 Data: ");
+    printf("0x0000~0x0009 Data: ");
     for(int i=0; i<5; i++)
     {
       printf("0x%04X ", data_buf[i]);
@@ -967,21 +958,259 @@ static void AM29_Get_Id_And_Read10(void)
 
 			// 读取AM29LV320 ID
 			am29lv320_id_32bit = AM29LV320_Read_ID();
-			printf("AM29LV320 ID (32bit): 0x%08X\r\n", am29lv320_id_32bit);
+			printf("AM29 ID: 0x%08X\r\n", am29lv320_id_32bit);
 
 		// 读取并打印CFI容量信息
 		uint16_t cfi_cap_val = AM29LV320_Read_CFI_Capacity();
 		uint32_t actual_cap = AM29LV320_Parse_CFI_Capacity(cfi_cap_val);
-		printf("AM29LV320 CFI Capacity Raw Value: 0x%04X\r\n", cfi_cap_val);
+		printf("AM29 CFI容量原始值: 0x%04X\r\n", cfi_cap_val);
 		if(actual_cap > 0)
 		{
-				printf("AM29LV320 Actual Capacity: %lu Bytes (%lu MB)\r\n", 
-							 (unsigned long)actual_cap, (unsigned long)((unsigned long)actual_cap / 1024 / 1024));
+				printf("AM29容量: %lu Bytes (%lu KByte)\r\n", 
+							 (unsigned long)actual_cap, (unsigned long)((unsigned long)actual_cap / 1024 ));
 		}
 		else
 		{
-				printf("AM29LV320 CFI Capacity: Unknown\r\n");
+				printf("获取AM29容量错误\r\n");
 		}
+}
+
+
+/**
+ * @brief  读取AM29芯片全部内容并保存到TF卡
+ * @retval uint8_t: 0 - 成功 | 其他 - 错误码
+ */
+uint8_t AM29Read_To_File(void)
+{
+    FRESULT res;
+    FIL file;
+    FATFS fs;
+    DIR dir;
+    FILINFO fno;
+    const TCHAR* vol = _T("0:");
+    const TCHAR* path = _T("0:/AM29R");
+    char file_path[260] = {0};
+    uint32_t file_size = 0;
+    uint32_t read_bytes = 0;
+    uint32_t AM29_CAPACITY = 0;
+    uint32_t next_file_num = 1;
+    uint8_t buffer[512];  // 512字节缓冲区（对应256个半字）
+    UINT bw = 0;
+    
+    // 定义变量：存储开始/结束的Unix时间戳
+    uint32_t read_start_unix = 0;
+    uint32_t read_end_unix = 0;
+    uint32_t read_total_seconds = 0;
+    RTC_TimeTypeDef read_start_time = {0};
+    RTC_DateTypeDef read_start_date = {0};
+    RTC_TimeTypeDef read_end_time = {0};
+    RTC_DateTypeDef read_end_date = {0};
+    
+    printf("\r\n===== 开始读取AM29芯片内容到TF卡 =====\r\n");
+    
+    // 1. 获取AM29容量
+    uint16_t cap = AM29LV320_Read_CFI_Capacity();
+    if(cap == 0)
+    {
+        printf("获取AM29容量失败！\r\n");
+        return 99;
+    }
+    else if(cap > 0x1C)
+    {
+        printf("最大只支持S70GL02\r\n");
+        return 98;
+    }
+    
+    AM29_CAPACITY = AM29LV320_Parse_CFI_Capacity(cap);
+    printf("AM29容量: %lu Bytes (%lu MB)\r\n", 
+           (unsigned long)AM29_CAPACITY, 
+           (unsigned long)(AM29_CAPACITY / 1024 / 1024));
+    
+    // 2. 挂载TF卡
+    printf("挂载TF卡...\r\n");
+    res = f_mount(&fs, vol, 1);
+    if(res != FR_OK)
+    {
+        printf("TF卡挂载失败! 错误码: %d\r\n", res);
+        return 2;
+    }
+    
+    // 3. 检查/创建AM29R目录
+    res = f_opendir(&dir, path);
+    if(res != FR_OK)
+    {
+        printf("AM29R目录不存在，尝试创建...\r\n");
+        res = f_mkdir(path);
+        if(res == FR_OK)
+        {
+            printf("AM29R目录创建成功\r\n");
+        }
+        else
+        {
+            printf("创建AM29R目录失败! 错误码: %d\r\n", res);
+            f_mount(NULL, vol, 1);
+            return 3;
+        }
+    }
+    else
+    {
+        f_closedir(&dir);
+        printf("AM29R目录已存在\r\n");
+    }
+    
+    // 4. 查找下一个可用的文件名编号
+    printf("扫描AM29R目录中的文件...\r\n");
+    res = f_opendir(&dir, path);
+    if(res == FR_OK)
+    {
+        uint32_t max_num = 0;
+        while(1)
+        {
+            res = f_readdir(&dir, &fno);
+            if(res != FR_OK || fno.fname[0] == 0) break;
+            
+            if((fno.fattrib & AM_DIR) == 0)
+            {
+                // 检查文件名格式是否为 00000000.bin
+                char* suffix = strrchr(fno.fname, '.');
+                if(suffix && strcmp(suffix, ".bin") == 0)
+                {
+                    // 尝试解析前8位数字
+                    if(strlen(fno.fname) >= 12)  // 8位数字 + .bin = 12字符
+                    {
+                        char num_str[9] = {0};
+                        strncpy(num_str, fno.fname, 8);
+                        
+                        // 检查是否全是数字
+                        uint8_t all_digit = 1;
+                        for(int i = 0; i < 8; i++)
+                        {
+                            if(num_str[i] < '0' || num_str[i] > '9')
+                            {
+                                all_digit = 0;
+                                break;
+                            }
+                        }
+                        
+                        if(all_digit)
+                        {
+                            uint32_t file_num = atoi(num_str);
+                            if(file_num > max_num)
+                            {
+                                max_num = file_num;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        f_closedir(&dir);
+        
+        next_file_num = max_num + 1;
+        printf("最大文件编号: %08lu, 下一个编号: %08lu\r\n", 
+               (unsigned long)max_num, (unsigned long)next_file_num);
+    }
+    
+    // 5. 生成文件名
+    sprintf(file_path, "%s/%08lu.bin", path, (unsigned long)next_file_num);
+    printf("准备创建文件: %s\r\n", file_path);
+    
+    // 6. 创建文件
+    res = f_open(&file, file_path, FA_CREATE_NEW | FA_WRITE);
+    if(res != FR_OK)
+    {
+        printf("创建文件失败! 错误码: %d\r\n", res);
+        f_mount(NULL, vol, 1);
+        return 4;
+    }
+    
+    // 7. 芯片复位，确保处于正常读取模式
+    *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29LV320_RESET_CMD;
+    HAL_Delay(1);
+    
+    // 8. 获取开始时间
+    if (HAL_RTC_GetTime(&hrtc, &read_start_time, RTC_FORMAT_BIN) == HAL_OK)
+    {
+        HAL_RTC_GetDate(&hrtc, &read_start_date, RTC_FORMAT_BIN);
+        read_start_unix = rtc_to_unix_timestamp(&read_start_date, &read_start_time);
+        printf("读取开始时间：%04d-%02d-%02d %02d:%02d:%02d\r\n",
+               2000+read_start_date.Year, read_start_date.Month, read_start_date.Date,
+               read_start_time.Hours, read_start_time.Minutes, read_start_time.Seconds);
+    }
+    
+    // 9. 逐块读取芯片内容并写入文件
+    printf("开始读取芯片内容...\r\n");
+    
+    while (read_bytes < AM29_CAPACITY)
+    {
+        uint32_t block_size = 512;  // 每次读取512字节
+        if (read_bytes + block_size > AM29_CAPACITY)
+        {
+            block_size = AM29_CAPACITY - read_bytes;
+        }
+        
+        uint32_t halfword_count = block_size / 2;
+        uint32_t start_halfword = read_bytes / 2;
+        
+        // 读取512字节（256个半字）
+        for (uint32_t i = 0; i < halfword_count; i++)
+        {
+            uint16_t data = *(FSMC_NOR_BASE_ADDR + start_halfword + i);
+            buffer[i*2] = (data >> 8) & 0xFF;     // 高字节
+            buffer[i*2 + 1] = data & 0xFF;        // 低字节
+        }
+        
+        // 写入文件
+        res = f_write(&file, buffer, block_size, &bw);
+        if (res != FR_OK || bw != block_size)
+        {
+            printf("文件写入失败! 错误码: %d\r\n", res);
+            f_close(&file);
+            f_mount(NULL, vol, 1);
+            return 5;
+        }
+        
+        read_bytes += block_size;
+        
+        // 每读取0x10000字节（64KB）显示进度
+        if (read_bytes % (64 * 1024) == 0 || read_bytes == AM29_CAPACITY)
+        {
+            float percent = (float)read_bytes / AM29_CAPACITY * 100;
+            printf("读取进度：%lu/%lu 字节 (%.1f%%)\r\n",
+                   (unsigned long)read_bytes,
+                   (unsigned long)AM29_CAPACITY,
+                   percent);
+            
+            // LED闪烁提示
+            HAL_GPIO_TogglePin(LEDG_PORT, LEDG_PIN);
+        }
+    }
+    
+    // 10. 获取结束时间并计算耗时
+    if (HAL_RTC_GetTime(&hrtc, &read_end_time, RTC_FORMAT_BIN) == HAL_OK)
+    {
+        HAL_RTC_GetDate(&hrtc, &read_end_date, RTC_FORMAT_BIN);
+        read_end_unix = rtc_to_unix_timestamp(&read_end_date, &read_end_time);
+        read_total_seconds = read_end_unix - read_start_unix;
+        
+        printf("读取结束时间：%04d-%02d-%02d %02d:%02d:%02d\r\n",
+               2000+read_end_date.Year, read_end_date.Month, read_end_date.Date,
+               read_end_time.Hours, read_end_time.Minutes, read_end_time.Seconds);
+        printf("总耗时：%lu 秒\r\n", (unsigned long)read_total_seconds);
+    }
+    
+    // 11. 关闭文件并卸载TF卡
+    f_close(&file);
+    f_mount(NULL, vol, 1);
+    
+    // 12. 芯片复位
+    *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29LV320_RESET_CMD;
+    HAL_Delay(1);
+    
+    printf("\r\n===== 读取完成！文件已保存为：%s =====\r\n", file_path);
+    printf("文件大小：%lu 字节\r\n", (unsigned long)read_bytes);
+    
+    return 0;
 }
 
 
@@ -998,17 +1227,156 @@ static void AM29_Erase_And_Verify(void)
 }
 
 // 写入BIN文件并校验（独立函数封装）
+// 分页显示和选择AM29目录下的.bin文件
 static void AM29_Write_And_Verify(void)
 {
-		uint8_t file_write_ret = AM29LV320_Write_Data_From_File("M04401~1.BIN");
-		if (file_write_ret == 0)
-		{
-				printf("===== M04401~1.BIN 写入成功 =====\r\n");
-		}
-		else
-		{
-				printf("===== M04401~1.BIN 写入失败，错误码：%d =====\r\n", file_write_ret);
-		}
+    uint8_t bin_file_cnt = 0;
+    AM29_File_Info_t* bin_file_list = NULL;
+    uint8_t current_page = 0;
+    uint8_t total_pages = 0;
+    uint8_t user_choice = 0;
+    uint8_t selected_file_index = 0;
+    uint8_t file_selected = 0;
+    char selected_filename[256] = {0};
+    
+    // 获取AM29目录下的所有.bin文件
+    printf("\r\n===== 正在扫描AM29目录下的.bin文件 =====\r\n");
+    bin_file_list = AM29_List_Bin_Files(&bin_file_cnt);
+    
+    if (bin_file_list == NULL || bin_file_cnt == 0)
+    {
+        printf("AM29目录下没有找到.bin文件，请先放入文件再操作\r\n");
+        return;
+    }
+    
+    // 计算总页数（每页4个文件）
+    total_pages = (bin_file_cnt + 3) / 4; // 向上取整
+    
+    // 循环让用户选择文件
+    while (!file_selected)
+    {
+        // 清屏（简单的分隔线）
+        printf("\r\n========================================\r\n");
+        printf("===== 请选择要写入的BIN文件 (共%d个) =====\r\n", bin_file_cnt);
+        printf("========================================\r\n");
+        
+        // 显示当前页的文件列表
+        uint8_t start_idx = current_page * 4;
+        uint8_t end_idx = start_idx + 4;
+        if (end_idx > bin_file_cnt) end_idx = bin_file_cnt;
+        
+        for (uint8_t i = start_idx; i < end_idx; i++)
+        {
+            uint8_t display_num = (i - start_idx) + 1; // 当前页内的编号 1-4
+            printf("%d - %s (%lu 字节)\r\n", 
+                   display_num, 
+                   bin_file_list[i].filename,
+                   (unsigned long)bin_file_list[i].filesize);
+        }
+        
+        printf("\r\n");
+        
+        // 显示翻页提示
+        if (total_pages > 1)
+        {
+            printf("当前第 %d/%d 页\r\n", current_page + 1, total_pages);
+            printf("5 - 下一页\r\n");
+            printf("6 - 上一页\r\n");
+        }
+        
+        printf("0 - 返回主菜单\r\n");
+        printf("请选择 (1-%d, 5/6翻页, 0返回): ", (end_idx - start_idx));
+        
+        // 获取用户输入
+        user_choice = UART_Read_User_Input();
+        
+        // 处理用户选择
+        if (user_choice == 0)
+        {
+            printf("已返回主菜单\r\n");
+            return;
+        }
+        else if (user_choice == 5) // 下一页
+        {
+            if (current_page < total_pages - 1)
+            {
+                current_page++;
+            }
+            else
+            {
+                printf("已经是最后一页了！\r\n");
+                HAL_Delay(500); // 短暂延迟让用户看到提示
+            }
+        }
+        else if (user_choice == 6) // 上一页
+        {
+            if (current_page > 0)
+            {
+                current_page--;
+            }
+            else
+            {
+                printf("已经是第一页了！\r\n");
+                HAL_Delay(500);
+            }
+        }
+        else if (user_choice >= 1 && user_choice <= 4) // 选择了文件
+        {
+            selected_file_index = start_idx + (user_choice - 1);
+            if (selected_file_index < bin_file_cnt)
+            {
+                // 复制选中的文件名
+                strncpy(selected_filename, bin_file_list[selected_file_index].filename, sizeof(selected_filename) - 1);
+                file_selected = 1;
+            }
+            else
+            {
+                printf("无效的选择！\r\n");
+                HAL_Delay(500);
+            }
+        }
+        else
+        {
+            printf("无效的输入！请重新选择\r\n");
+            HAL_Delay(500);
+        }
+    }
+    
+    // 确认选择
+    printf("\r\n您选择了文件：%s\r\n", selected_filename);
+    printf("按回车键开始写入，按其他键取消...\r\n");
+    
+    // 等待用户确认（简化版，只检测回车）
+    uint8_t confirm = 0;
+    uint8_t ch = 0;
+    if (HAL_UART_Receive(&huart1, &ch, 1, 5000) == HAL_OK)
+    {
+        if (ch == '\r' || ch == '\n')
+        {
+            confirm = 1;
+        }
+    }
+    
+    if (confirm)
+    {
+        printf("\r\n===== 开始写入文件: %s =====\r\n", selected_filename);
+        
+        // 执行写入操作
+        uint8_t file_write_ret = AM29LV320_Write_Data_From_File(selected_filename);
+        
+        if (file_write_ret == 0)
+        {
+            printf("\r\n===== %s 写入成功 =====\r\n", selected_filename);
+        }
+        else
+        {
+            printf("\r\n===== %s 写入失败，错误码：%d =====\r\n", selected_filename, file_write_ret);
+        }
+    }
+    else
+    {
+        printf("操作已取消\r\n");
+    }
 }
 
 static void MX_RTC_Init(void)
@@ -1244,6 +1612,23 @@ uint16_t AM29LV320_Read_CFI_Capacity(void)
     *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29LV320_RESET_CMD;
     HAL_Delay(1);
     
+	  if(cfi_capacity == 0xff)
+		{
+			printf("异常容量");
+			return 0;
+		} 
+		else if(cfi_capacity == 0x0fff)
+		{
+			printf("异常容量");
+			return 0;
+		}
+		else if(cfi_capacity == 0xffff)
+		{
+			printf("异常容量");
+			return 0;
+		}
+
+	
     return cfi_capacity;
 }
 
@@ -1310,13 +1695,22 @@ uint8_t AM29LV320_Chip_Erase(void)
 	  if(cap==0)
 		{
 			//获取容量失败
-			printf("Get Chip Size failed\r\n");
+			printf("获取容量失败\r\n");
 			return 99;
 		} 
 		else if(cap<=0x14)
 		{
 			//4M
 			max_timeout = 60;
+		}
+		else if(cap>=0x15 && cap<=0x1C)
+		{
+			max_timeout = 120 * (cap-0x14);
+		}
+		else
+		{
+			printf("最大支持256MByte(S70GL02)\r\n");
+			return 98;			
 		}
 	
 	
@@ -1352,16 +1746,16 @@ uint8_t AM29LV320_Chip_Erase(void)
 
     // 读取并检查擦除状态
     ry_by_state = HAL_GPIO_ReadPin(RY_BY_PORT, RY_BY_PIN);
-    printf("Check is Enter Erase\r\n");
+    printf("正在检查是否进入擦除\r\n");
 
     // 验证是否成功进入擦除状态
     if (ry_by_state == GPIO_PIN_RESET)
     {
-        printf("RY/BY# is 0, Enter Success\r\n");
+        printf("RY/BY# is 0, 成功进入擦除状态\r\n");
     }
     else
     {
-        printf("RY/BY# is 1, Enter Failed\r\n");
+        printf("RY/BY# is 1, 擦除状态进入失败\r\n");
         return 2; // 进入擦除状态失败
     }
 
@@ -1371,7 +1765,7 @@ uint8_t AM29LV320_Chip_Erase(void)
         // 超时保护
         if (timeout_count > max_timeout)
         {
-            printf("Erase Timeout! (Count: %lu)\r\n", (unsigned long)timeout_count);
+            printf("擦除超时! (Count: %lu)\r\n", (unsigned long)timeout_count);
             // 复位芯片退出擦除状态
             *(FSMC_NOR_BASE_ADDR + 0x0000) = 0xFFFF;
             HAL_Delay(1);
@@ -1380,7 +1774,7 @@ uint8_t AM29LV320_Chip_Erase(void)
 
         // 读取RY/BY#引脚状态并打印
         ry_by_state = HAL_GPIO_ReadPin(RY_BY_PORT, RY_BY_PIN);
-        printf("Time:%ds, RY/BY#:%d\r\n", timeout_count, 
+        printf("计时:%ds, RY/BY#:%d\r\n", timeout_count, 
                (ry_by_state == GPIO_PIN_SET) ? 1 : 0);
 
         // 仅当RY/BY#为高(就绪)时, 读取状态寄存器进行验证
@@ -1395,7 +1789,7 @@ uint8_t AM29LV320_Chip_Erase(void)
             q7 = (status_data >> 7) & 0x01; // Q7: 擦除完成标志(1=完成)
 
             // 打印详细状态信息
-            printf("Status: Q7=%d, Q6=%d, Q5=%d, RY/BY#=%d\r\n", 
+            printf("擦除状态: Q7=%d, Q6=%d, Q5=%d, RY/BY#=%d\r\n", 
                    q7, q6, q5, (ry_by_state == GPIO_PIN_SET) ? 1 : 0);
 
             // 擦除完成判断条件
@@ -1439,7 +1833,7 @@ uint8_t AM29LV320_Chip_Erase(void)
 
 				// 3. 计算擦除耗时（直接相减，无需处理跨时段）
 				erase_total_seconds = erase_end_unix - erase_start_unix;
-				printf("AM29LV320 芯片擦除耗时：%lu 秒\r\n", (unsigned long)erase_total_seconds);
+				printf("AM29芯片擦除耗时：%lu 秒\r\n", (unsigned long)erase_total_seconds);
 		}
 
 
@@ -1481,9 +1875,9 @@ uint8_t AM29LV320_Chip_Erase(void)
 				// 每校验100000个地址打印进度（提升交互性）
 				if (total_check_addr % 100000 == 0) {
 					  HAL_GPIO_TogglePin(LEDG_PORT, LEDG_PIN);
-						printf("验证进度：%lu/%lu 半字 | 当前错误数：%lu\r\n",
-									 (unsigned long)total_check_addr,
-									 (unsigned long)chip_total_halfwords,
+						printf("验证进度：%lu/%lu  | 当前错误数：%lu\r\n",
+									 (unsigned long)total_check_addr*2,
+									 (unsigned long)chip_total_halfwords*2,
 									 (unsigned long)error_count);
 				}
 		}
@@ -1515,6 +1909,197 @@ uint8_t AM29LV320_Chip_Erase(void)
     }
 }
 
+/**
+ * @brief  检查AM29LV320芯片指定区域是否为空白（0xFFFF）
+ * @param  start_addr: 起始字节地址（如0x00000000，必须偶对齐）
+ * @param  check_len:  检查的字节长度（如0x100 = 256字节）
+ * @param  show_details: 是否显示详细错误信息（1显示，0不显示）
+ * @retval uint8_t: 0 - 区域完全空白（所有数据为0xFFFF）
+ *                  1 - 区域非空白（存在非0xFFFF数据）
+ *                  2 - 参数错误
+ */
+uint8_t AM29LV320_Check_Blank(uint32_t start_addr, uint32_t check_len, uint8_t show_details)
+{
+    // 参数校验
+    if (check_len == 0)
+    {
+        printf("检查失败：检查长度不能为0\r\n");
+        return 2;
+    }
+    
+    // 地址必须偶对齐（字节地址必须是2的倍数）
+    if (start_addr % 2 != 0)
+    {
+        printf("检查失败：起始地址0x%08X不是偶对齐\r\n", start_addr);
+        return 2;
+    }
+    
+    // 计算半字起始偏移和检查的半字数量
+    uint32_t start_halfword = start_addr >> 1;  // 字节地址转半字偏移
+    uint32_t halfword_count = (check_len + 1) >> 1;  // 字节长度转半字数量（向上取整）
+    
+    // 如果是奇数长度，最后一个半字只检查有效字节
+    uint8_t is_odd_len = (check_len % 2 != 0);
+    uint8_t last_byte_valid = is_odd_len ? (start_addr + check_len - 1) % 2 : 0;  // 最后一个有效字节在低8位还是高8位
+    
+    uint32_t error_count = 0;
+    uint32_t first_error_addr = 0;
+    uint16_t first_error_data = 0;
+    uint32_t first_error_halfword = 0;
+    
+    // 打印检查范围信息
+    if (show_details)
+    {
+        printf("正在检查芯片区域: 0x%08lX ~ 0x%08lX (共%lu字节, %lu半字)\r\n",
+               (unsigned long)start_addr,
+               (unsigned long)(start_addr + check_len - 1),
+               (unsigned long)check_len,
+               (unsigned long)halfword_count);
+    }
+    
+    // 逐半字检查（地址偏移直接+1即可访问下一个半字）
+    for (uint32_t i = 0; i < halfword_count; i++)
+    {
+        uint32_t current_halfword = start_halfword + i;  // 半字偏移 +1 即可
+        uint16_t data = *(FSMC_NOR_BASE_ADDR + current_halfword);
+        
+        // 处理最后一个半字（如果是奇数长度）
+        if (is_odd_len && i == halfword_count - 1)
+        {
+            // 根据最后有效字节的位置检查对应的8位
+            if (last_byte_valid == 0)  // 最后有效字节在低8位（起始地址为偶，奇数长度）
+            {
+                if ((data & 0x00FF) != 0xFF)  // 只检查低8位
+                {
+                    error_count++;
+                    if (error_count == 1)
+                    {
+                        first_error_halfword = current_halfword;
+                        first_error_addr = (uint32_t)(FSMC_NOR_BASE_ADDR + current_halfword);
+                        first_error_data = data;
+                    }
+                    if (show_details && error_count <= 10)
+                    {
+                        printf("  错误 #%lu: 地址0x%08lX 数据0x%04X (低字节0x%02X非0xFF)\r\n",
+                               (unsigned long)error_count,
+                               (unsigned long)(FSMC_NOR_BASE_ADDR + current_halfword),
+                               data, data & 0xFF);
+                    }
+                }
+            }
+            else  // 最后有效字节在高8位（起始地址为奇，但我们的起始地址必须偶对齐，所以这种情况不会发生）
+            {
+                if ((data >> 8) != 0xFF)
+                {
+                    error_count++;
+                    if (error_count == 1)
+                    {
+                        first_error_halfword = current_halfword;
+                        first_error_addr = (uint32_t)(FSMC_NOR_BASE_ADDR + current_halfword);
+                        first_error_data = data;
+                    }
+                    if (show_details && error_count <= 10)
+                    {
+                        printf("  错误 #%lu: 地址0x%08lX 数据0x%04X (高字节0x%02X非0xFF)\r\n",
+                               (unsigned long)error_count,
+                               (unsigned long)(FSMC_NOR_BASE_ADDR + current_halfword),
+                               data, data >> 8);
+                    }
+                }
+            }
+        }
+        else
+        {
+            // 正常半字，应该为0xFFFF
+            if (data != 0xFFFF)
+            {
+                error_count++;
+                if (error_count == 1)
+                {
+                    first_error_halfword = current_halfword;
+                    first_error_addr = (uint32_t)(FSMC_NOR_BASE_ADDR + current_halfword);
+                    first_error_data = data;
+                }
+                if (show_details && error_count <= 10)
+                {
+                    printf("  错误 #%lu: 地址0x%08lX 数据0x%04X (应为0xFFFF)\r\n",
+                           (unsigned long)error_count,
+                           (unsigned long)(FSMC_NOR_BASE_ADDR + current_halfword),
+                           data);
+                }
+            }
+        }
+    }
+    
+    // 汇总报告
+    if (show_details)
+    {
+        if (error_count == 0)
+        {
+            printf("? 检查通过：指定区域全部为0xFFFF\r\n");
+        }
+        else
+        {
+            printf("\r\n??  检查发现 %lu 个非空白地址", (unsigned long)error_count);
+            
+            if (error_count > 0)
+            {
+                printf(" (首个错误：地址0x%08lX 数据0x%04X)\r\n",
+                       (unsigned long)first_error_addr,
+                       first_error_data);
+                
+                if (error_count > 10)
+                {
+                    printf("   (只显示了前10个错误，共%lu个错误)\r\n", (unsigned long)error_count);
+                }
+                
+                // 显示可能的错误原因
+                printf("\r\n可能的原因：\r\n");
+                printf("  1. 芯片尚未擦除 - 建议先执行整片擦除（选项2）\r\n");
+                printf("  2. 芯片已有有效数据 - 直接写入可能导致数据损坏\r\n");
+                printf("  3. 硬件连接问题 - 检查FSMC连接和芯片供电\r\n");
+            }
+            else
+            {
+                printf("\r\n");
+            }
+        }
+    }
+    
+    return (error_count == 0) ? 0 : 1;
+}
+
+/**
+ * @brief  快速检查芯片起始区域（0x00000000~0x000000FF）是否空白
+ * @param  ask_user: 是否在发现错误时询问用户
+ * @retval uint8_t: 0 - 区域空白 | 1 - 区域非空白 | 2 - 用户取消操作
+ */
+uint8_t AM29LV320_Check_Start_Area(uint8_t ask_user)
+{
+    uint8_t check_result = AM29LV320_Check_Blank(0x00000000, 0x100, 1);  // 检查256字节
+    
+    if (check_result != 0 && ask_user)
+    {
+        printf("\r\n是否强制继续写入？(输入 Y 继续，其他键取消): ");
+        
+        // 等待用户确认
+        uint8_t ch = 0;
+        if (HAL_UART_Receive(&huart1, &ch, 1, 50000000) == HAL_OK)
+        {
+            if (ch == 'Y' || ch == 'y')
+            {
+                printf("\r\n用户选择强制继续写入...\r\n");
+                return 0;  // 返回0表示用户同意继续
+            }
+        }
+        
+        printf("\r\n写入操作已取消\r\n");
+        return 2;  // 用户取消
+    }
+    
+    return check_result;
+}
+
 uint8_t AM29LV320_Write_Data_From_File(const char *filename)
 {
     FRESULT res;
@@ -1525,11 +2110,11 @@ uint8_t AM29LV320_Write_Data_From_File(const char *filename)
     uint8_t write_ret = 0;
     uint32_t file_size = 0;
     uint32_t written_bytes = 0;
-    const uint32_t AM29_MAX_CAPACITY = 0x400000; // AM29LV320最大容量4MB(字节)
+    uint32_t AM29_MAX_CAPACITY = 0x000000; // 最大容量(字节)
     
-						uint32_t error_count = 0;        // 统计不一致的Word数量
+		uint32_t error_count = 0;        // 统计不一致的Word数量
 
-				// 定义变量：存储开始/结束的Unix时间戳，以及日期时间结构体
+		// 定义变量：存储开始/结束的Unix时间戳，以及日期时间结构体
     uint32_t erase_start_unix = 0;
     uint32_t erase_end_unix = 0;
     uint32_t erase_total_seconds = 0;
@@ -1538,7 +2123,35 @@ uint8_t AM29LV320_Write_Data_From_File(const char *filename)
     RTC_DateTypeDef erase_start_date = {0};
     RTC_TimeTypeDef erase_end_time = {0};
     RTC_DateTypeDef erase_end_date = {0};
-
+		
+		//获取AM29的容量
+		uint16_t cap = AM29LV320_Read_CFI_Capacity();
+		if(cap==0)
+		{
+			printf("获取容量失败\r\n");
+			return 99;
+		}
+		else if(cap >0x1C)
+		{
+			printf("最大只支持S70GL02\r\n");
+			return 98;
+		}
+		
+		AM29_MAX_CAPACITY = AM29LV320_Parse_CFI_Capacity(cap);
+		
+		printf("AM29容量: %lu Bytes (%lu KByte)\r\n", 
+							 (unsigned long)AM29_MAX_CAPACITY, (unsigned long)((unsigned long)AM29_MAX_CAPACITY / 1024 ));
+		
+		// 检查芯片起始区域是否为空（0xFFFF）
+		uint8_t check_result = AM29LV320_Check_Start_Area(1);  // 检查并询问用户
+		if (check_result == 2)  // 用户取消
+		{
+				f_close(&file);
+				f_mount(NULL, vol, 1);
+				return 10;  // 返回特定错误码表示用户取消
+		}
+		// 如果 check_result == 1，用户选择了强制继续，继续执行
+		// 如果 check_result == 0，区域空白，继续执行
 		
     // 1. 入参校验
     if (filename == NULL || strlen(filename) == 0)
@@ -1734,94 +2347,94 @@ uint8_t AM29LV320_Write_Data_From_File(const char *filename)
 
 				// 3. 计算写入耗时（直接相减，无需处理跨时段）
 				erase_total_seconds = erase_end_unix - erase_start_unix;
-				printf("AM29LV320 芯片写入耗时：%lu 秒\r\n", (unsigned long)erase_total_seconds);
+				printf("AM29芯片写入耗时：%lu 秒\r\n", (unsigned long)erase_total_seconds);
 		}
 
 
 		// 8. 全量逐Word对比验证（8192字节分块读取优化）
-if (write_ret == 0)
-{
-    printf("开始全量逐Word验证（文件VS芯片）...\r\n");
-    uint32_t total_verify_words = 0; // 总验证Word数
-    uint32_t verify_addr = 0;        // 字节地址偏移
-    uint8_t file_buf[8192] = {0};    // 8192字节分块缓冲区（提升读取效率）
-    UINT br = 0;
-    #define VERIFY_BUF_SIZE 8192     // 分块大小定义
+		if (write_ret == 0)
+		{
+				printf("开始全量逐Word验证（文件VS芯片）...\r\n");
+				uint32_t total_verify_words = 0; // 总验证Word数
+				uint32_t verify_addr = 0;        // 字节地址偏移
+				uint8_t file_buf[8192] = {0};    // 8192字节分块缓冲区（提升读取效率）
+				UINT br = 0;
+				#define VERIFY_BUF_SIZE 8192     // 分块大小定义
 
-    // 重置文件指针到起始位置
-    f_lseek(&file, 0);
+				// 重置文件指针到起始位置
+				f_lseek(&file, 0);
 
-    // 分块读取+逐Word遍历整个文件
-    while (verify_addr < file_size)
-    {
-        // 8.1 计算当前块需要读取的字节数（不足8192时读取剩余部分）
-        uint32_t read_len = (file_size - verify_addr) > VERIFY_BUF_SIZE ? 
-                            VERIFY_BUF_SIZE : (file_size - verify_addr);
-        
-        // 8.2 从TF卡文件读取1块数据（8192字节）
-        FRESULT res = f_read(&file, file_buf, read_len, &br);
-        if (res != FR_OK || br != read_len)
-        {
-            printf("文件分块读取异常！起始地址0x%08X, 期望读取%lu字节, 实际读取%lu字节\r\n",
-                   verify_addr, (unsigned long)read_len, (unsigned long)br);
-            write_ret = 6;
-            break;
-        }
+				// 分块读取+逐Word遍历整个文件
+				while (verify_addr < file_size)
+				{
+						// 8.1 计算当前块需要读取的字节数（不足8192时读取剩余部分）
+						uint32_t read_len = (file_size - verify_addr) > VERIFY_BUF_SIZE ? 
+																VERIFY_BUF_SIZE : (file_size - verify_addr);
+						
+						// 8.2 从TF卡文件读取1块数据（8192字节）
+						FRESULT res = f_read(&file, file_buf, read_len, &br);
+						if (res != FR_OK || br != read_len)
+						{
+								printf("文件分块读取异常！起始地址0x%08X, 期望读取%lu字节, 实际读取%lu字节\r\n",
+											 verify_addr, (unsigned long)read_len, (unsigned long)br);
+								write_ret = 6;
+								break;
+						}
 
-        // 8.3 遍历当前块的所有Word（逐2字节处理）
-        for (uint32_t buf_idx = 0; buf_idx < br; buf_idx += 2)
-        {
-            // 8.3.1 处理文件大小奇数的边界情况（最后1字节补0）
-            uint8_t byte0 = file_buf[buf_idx];
-            uint8_t byte1 = (buf_idx + 1 < br) ? file_buf[buf_idx + 1] : 0x00;
+						// 8.3 遍历当前块的所有Word（逐2字节处理）
+						for (uint32_t buf_idx = 0; buf_idx < br; buf_idx += 2)
+						{
+								// 8.3.1 处理文件大小奇数的边界情况（最后1字节补0）
+								uint8_t byte0 = file_buf[buf_idx];
+								uint8_t byte1 = (buf_idx + 1 < br) ? file_buf[buf_idx + 1] : 0x00;
 
-            // 8.3.2 转换文件数据为大端格式16位Word（和原逻辑一致）
-            uint16_t data_file = ((uint16_t)byte0 << 8) | byte1;
-            
-            // 8.3.3 读取芯片对应地址的Word（字节地址转半字偏移）
-            uint32_t chip_halfword = verify_addr >> 1;
-            uint16_t data_chip = *(FSMC_NOR_BASE_ADDR + chip_halfword);
+								// 8.3.2 转换文件数据为大端格式16位Word（和原逻辑一致）
+								uint16_t data_file = ((uint16_t)byte0 << 8) | byte1;
+								
+								// 8.3.3 读取芯片对应地址的Word（字节地址转半字偏移）
+								uint32_t chip_halfword = verify_addr >> 1;
+								uint16_t data_chip = *(FSMC_NOR_BASE_ADDR + chip_halfword);
 
-            // 8.3.4 对比并统计错误
-            if (data_chip != data_file)
-            {
-                error_count++;
-                // 每1000个错误打印一次（避免串口刷屏）
-                if (error_count % 1000 == 0)
-                {
-                    printf("验证异常：地址0x%08X | 文件0x%04X ≠ 芯片0x%04X | 累计错误：%lu\r\n",
-                            (uint32_t)FSMC_NOR_BASE_ADDR + verify_addr, data_file, data_chip, (unsigned long)error_count);
-                }
-            }
+								// 8.3.4 对比并统计错误
+								if (data_chip != data_file)
+								{
+										error_count++;
+										// 每1000个错误打印一次（避免串口刷屏）
+										if (error_count % 1000 == 0)
+										{
+												printf("验证异常：地址0x%08X | 文件0x%04X ≠ 芯片0x%04X | 累计错误：%lu\r\n",
+																(uint32_t)FSMC_NOR_BASE_ADDR + verify_addr, data_file, data_chip, (unsigned long)error_count);
+										}
+								}
 
-            // 8.3.5 进度打印（每100000个Word打印一次）
-            total_verify_words++;
-            if (total_verify_words % 100000 == 0)
-            {
-                printf("验证进度：%lu/%lu Words | 当前错误数：%lu\r\n",
-                        (unsigned long)total_verify_words, 
-                        (unsigned long)((file_size + 1) / 2), // 总Word数（向上取整）
-                        (unsigned long)error_count);
-            }
+								// 8.3.5 进度打印（每100000个Word打印一次）
+								total_verify_words++;
+								if (total_verify_words % 100000 == 0)
+								{
+										printf("验证进度：%lu/%lu Words | 当前错误数：%lu\r\n",
+														(unsigned long)total_verify_words, 
+														(unsigned long)((file_size + 1) / 2), // 总Word数（向上取整）
+														(unsigned long)error_count);
+								}
 
-            // 8.3.6 全局地址偏移递增（按字节）
-            verify_addr += 2;
-        }
-    }
+								// 8.3.6 全局地址偏移递增（按字节）
+								verify_addr += 2;
+						}
+				}
 
-    // 8.4 验证结果汇总
-    printf("全量验证完成 | 总验证Word数：%lu | 不一致Word数：%lu\r\n",
-            (unsigned long)total_verify_words, (unsigned long)error_count);
-    
-    if (error_count > 0)
-    {
-        write_ret = 6; // 标记验证失败
-    }
-    else
-    {
-        printf("全量逐Word校验通过！\r\n");
-    }
-}
+				// 8.4 验证结果汇总
+				printf("全量验证完成 | 总验证Word数：%lu | 不一致Word数：%lu\r\n",
+								(unsigned long)total_verify_words, (unsigned long)error_count);
+				
+				if (error_count > 0)
+				{
+						write_ret = 6; // 标记验证失败
+				}
+				else
+				{
+						printf("全量逐Word校验通过！\r\n");
+				}
+		}
 
     // 9. 资源释放 + 芯片复位
     *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29LV320_RESET_CMD;
@@ -1943,13 +2556,33 @@ AM29_File_Info_t* AM29_List_Bin_Files(uint8_t *file_count)
     // res = f_mkdir(path);
     // if(res != FR_OK && res != FR_EXIST) { ... }
 
-    res = f_opendir(&dir, path);
-    if(res != FR_OK)
-    {
-        printf("打开AM29目录失败! 错误码: %d\r\n", res);
-        f_mount(NULL, vol, 1); 
-        return NULL;
-    }
+		res = f_opendir(&dir, path);
+		if(res != FR_OK)
+		{
+				printf("打开AM29目录失败! 错误码: %d，尝试创建目录...\r\n", res);
+				
+				// 尝试创建AM29目录
+				res = f_mkdir(path);
+				if(res == FR_OK)
+				{
+						printf("AM29目录创建成功，重新打开目录...\r\n");
+						
+						// 重新打开目录
+						res = f_opendir(&dir, path);
+						if(res != FR_OK)
+						{
+								printf("重新打开AM29目录失败! 错误码: %d\r\n", res);
+								f_mount(NULL, vol, 1); 
+								return NULL;
+						}
+				}
+				else
+				{
+						printf("创建AM29目录失败! 错误码: %d\r\n", res);
+						f_mount(NULL, vol, 1); 
+						return NULL;
+				}
+		}
 
     printf("===== AM29目录下的.bin文件列表 =====\r\n");
     while(1)
