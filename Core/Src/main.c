@@ -30,6 +30,11 @@
 #include "stm32f1xx_hal.h"  // 工程必有的HAL库头文件（包含SDIO基础定义）
 #include "stm32f1xx_hal_rtc.h"  // RTC HAL库头文件
 
+//SSD1306
+#include "oled.h"
+#include "bmp.h"
+
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -56,6 +61,10 @@ RTC_HandleTypeDef hrtc;
 // LED定义：LEDG（对应PB0的LED_G_Pin）
 #define LEDG_PIN          LED_G_Pin
 #define LEDG_PORT         GPIOB
+
+#define LEDR_PIN          LED_R_Pin
+#define LEDR_PORT         GPIOB
+
 
 // ********** AM29LV320 FSMC 配置 **********
 #define FSMC_NOR_BASE_ADDR    ((uint16_t *)0x60000000)  // FSMC BANK1基地址(半字访问，AM29LV320为16位宽)
@@ -226,6 +235,10 @@ int main(void)
   /* USER CODE BEGIN 2 */
 	MX_RTC_Init();
 
+  //LED初始化
+	HAL_GPIO_WritePin(LEDG_PORT, LEDG_PIN, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LEDR_PORT, LEDR_PIN, GPIO_PIN_SET);
+
   // 启动时强制将USB D+引脚拉低，防止主机检测到设备 START
   printf("初始化USB引脚为低电平，防止提前检测...\r\n");
   
@@ -245,10 +258,13 @@ int main(void)
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 	// 启动时强制将USB D+引脚拉低，防止主机检测到设备 END
 	
+	//SSD1306 START
+	OLED_Init();
+	OLED_ColorTurn(0);//0正常显示，1 反色显示
+	OLED_DisplayTurn(0);//0正常显示 1 屏幕翻转显示
+  OLED_Clear();
+	//SSD1306 END
 
-  // 启动时通过USART1发送hello（波特率115200）
-  printf("AM29 Programmer By motozilog V1.0\r\n");
-	
 	/* TF START */
 	// 初始化后检测TF卡状态
 	printf("SDIO状态：%d\r\n", HAL_SD_GetState(&hsd));
@@ -272,15 +288,56 @@ int main(void)
 			uint64_t real_bytes = (uint64_t)g_tf_block_num * g_tf_block_size;
 			uint32_t real_mb = (uint32_t)(real_bytes / 1024 / 1024);
 			printf("SDIO读取真实容量：%u MB\r\n", real_mb);
+			if(real_mb==0)
+			{
+				printf("读取TF卡信息失败，请插入TF卡（需要MBR格式，不支持GPT。只能1个FAT32分区，不支持ExFAT）\r\n");
+				// 设置默认容量以防万一
+				g_tf_block_num = 0;
+				g_tf_block_size = 0;
+		
+				OLED_ShowString(0,0,"Please Insert TF CARD",8,1);
+				OLED_ShowString(0,8,"MBR ONLY, Not GPT",8,1);
+				OLED_ShowString(0,16,"FAT32 ONLY, Not ExFAT",8,1);
+				OLED_Refresh();
+
+				while(1)
+				{
+						// LED闪烁提示
+						HAL_GPIO_TogglePin(LEDR_PORT, LEDR_PIN);
+						HAL_Delay(500);
+				}
+			}
 	}
 	else
 	{
-			printf("读取TF卡信息失败，使用默认容量（谨慎！）\r\n");
+			printf("读取TF卡信息失败，请插入TF卡（需要MBR格式，不支持GPT。只能1个FAT32分区，不支持ExFAT）\r\n");
 			// 设置默认容量以防万一
 			g_tf_block_num = 0;
 			g_tf_block_size = 0;
+	
+		  OLED_ShowString(0,0,"Please Insert TF CARD",8,1);
+	    OLED_ShowString(0,8,"MBR ONLY, Not GPT",8,1);
+	    OLED_ShowString(0,16,"FAT32 ONLY, Not ExFAT",8,1);
+	    OLED_Refresh();
+
+				while(1)
+				{
+						// LED闪烁提示
+						HAL_GPIO_TogglePin(LEDR_PORT, LEDR_PIN);
+						HAL_Delay(500);
+				}
 	}
 	/* TF END */
+
+	OLED_ShowString(0,0,"AM29 FSMC Programmer",8,1);//6*8 “ABC”
+	OLED_ShowString(0,8,"  By motozilog",8,1);//6*12 “ABC”
+	OLED_ShowString(0,16,"      V1.0",8,1);//6*12 “ABC”
+	OLED_Refresh();
+
+  // 启动时通过USART1发送hello（波特率115200）
+  printf("AM29 Programmer By motozilog V1.0\r\n");
+	
+
 
   /* USER CODE END 2 */
 
