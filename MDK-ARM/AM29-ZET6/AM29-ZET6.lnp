@@ -3,6 +3,7 @@
 "am29-zet6\main.o"
 "am29-zet6\stm32f1xx_it.o"
 "am29-zet6\stm32f1xx_hal_msp.o"
+"am29-zet6\oled.o"
 "am29-zet6\bsp_driver_sd.o"
 "am29-zet6\fatfs_platform.o"
 "am29-zet6\fatfs.o"

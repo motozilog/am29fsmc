@@ -22,19 +22,41 @@ Dialog DLL:      TCM.DLL V1.48.0.0
  
 <h2>Project:</h2>
 F:\CW32-STM32\AM29-ZET6\MDK-ARM\AM29-ZET6.uvprojx
-Project File Date:  03/02/2026
+Project File Date:  03/10/2026
 
 <h2>Output:</h2>
 *** Using Compiler 'V5.06 update 7 (build 960)', folder: 'C:\Keil_v5\ARM\ARMCC\Bin'
 Build target 'AM29-ZET6'
-compiling usbd_storage_if.c...
-../USB_DEVICE/App/usbd_storage_if.c(231): warning:  #111-D: statement is unreachable
-    return (USBD_OK);
-../USB_DEVICE/App/usbd_storage_if.c: 1 warning, 0 errors
+compiling main.c...
+../Core/Src/main.c(857): warning:  #177-D: variable "last_menu_line"  was declared but never referenced
+      static uint8_t last_menu_line = 3;
+../Core/Src/main.c(1055): warning:  #177-D: variable "dummy"  was declared but never referenced
+      uint8_t dummy;
+../Core/Src/main.c(1057): warning:  #177-D: variable "status"  was declared but never referenced
+      USBD_StatusTypeDef status;
+../Core/Src/main.c(1402): warning:  #177-D: variable "file_size"  was declared but never referenced
+      uint32_t file_size = 0;
+../Core/Src/main.c(1722): warning:  #177-D: variable "confirm"  was declared but never referenced
+      uint8_t confirm = 0;
+../Core/Src/main.c(1803): warning:  #177-D: variable "user_choice"  was declared but never referenced
+      uint8_t user_choice = 0;
+../Core/Src/main.c(1808): warning:  #550-D: variable "last_selection"  was set but never used
+      uint8_t last_selection = 0;      // 上一次选中的行，用于恢复反色
+../Core/Src/main.c(2509): warning:  #550-D: variable "q6_prev"  was set but never used
+      uint8_t q6_prev = 0;
+../Core/Src/main.c(2824): warning:  #550-D: variable "first_error_halfword"  was set but never used
+      uint32_t first_error_halfword = 0;
+../Core/Src/main.c(2981): warning:  #177-D: variable "key"  was declared but never referenced
+          uint8_t key = 0;
+../Core/Src/main.c(98): warning:  #550-D: variable "g_tick_step_us"  was set but never used
+  static uint32_t g_tick_step_us = 0;   // Tick递增步长（us，仅作为备用参数）
+../Core/Src/main.c(1254): warning:  #177-D: function "UART_Read_User_Input"  was declared but never referenced
+  static uint8_t UART_Read_User_Input(void)
+../Core/Src/main.c: 12 warnings, 0 errors
 linking...
-Program Size: Code=42866 RO-data=946 RW-data=356 ZI-data=30948  
+Program Size: Code=55762 RO-data=8934 RW-data=360 ZI-data=32104  
 FromELF: creating hex file...
-"AM29-ZET6\AM29-ZET6.axf" - 0 Error(s), 1 Warning(s).
+"AM29-ZET6\AM29-ZET6.axf" - 0 Error(s), 12 Warning(s).
 
 <h2>Software Packages used:</h2>
 

@@ -58,6 +58,7 @@ RTC_HandleTypeDef hrtc;
 // 按键定义：KEY_CANCEL（对应PC5，外部上拉，低电平有效）
 #define KEY_CANCEL_PIN    CANCEL_Pin
 #define KEY_CANCEL_PORT   GPIOC
+
 // LED定义：LEDG（对应PB0的LED_G_Pin）
 #define LEDG_PIN          LED_G_Pin
 #define LEDG_PORT         GPIOB
@@ -149,7 +150,18 @@ static void AM29_Erase_And_Verify(void);
 static void AM29_Write_And_Verify(void);
 static void switch_to_udisk(void);
 
+//按键
+uint8_t KEY_UP_Detect(void);
+uint8_t KEY_DOWN_Detect(void);
+uint8_t KEY_LEFT_Detect(void);
+uint8_t KEY_RIGHT_Detect(void);
+uint8_t KEY_OK_Detect(void);
 uint8_t KEY_CANCEL_Detect(void);
+
+static uint8_t Get_Any_Key(void);
+static uint8_t Get_User_Input(void);
+
+
 uint32_t AM29LV320_Read_ID(void);  // 读取AM29的ID
 
 static void MX_RTC_Init(void); //RTC初始化声明
@@ -172,6 +184,8 @@ uint32_t rtc_to_unix_timestamp(RTC_DateTypeDef *date, RTC_TimeTypeDef *time);
 void delayns_init(void);
 void delayns(uint32_t ns);
 void delaycmd(void);
+
+static uint8_t Wait_Any_Key(uint32_t timeout_ms);
 
 AM29_File_Info_t* AM29_List_Bin_Files(uint8_t *file_count);
 
@@ -196,6 +210,9 @@ SD_HandleTypeDef hsd; // SDIO句柄（全局，和工程其他部分兼容）
 #define SDIO_CLOCK_POWER_SAVE_DISABLE  0x00000000U
 #define SDIO_BUS_WIDE_1B               0x00000000U
 #define SDIO_HARDWARE_FLOW_CONTROL_DISABLE 0x00000000U
+
+
+
 /* USER CODE END 0 */
 
 /**
@@ -295,9 +312,10 @@ int main(void)
 				g_tf_block_num = 0;
 				g_tf_block_size = 0;
 		
-				OLED_ShowString(0,0,"Please Insert TF CARD",8,1);
-				OLED_ShowString(0,8,"MBR ONLY, Not GPT",8,1);
-				OLED_ShowString(0,16,"FAT32 ONLY, Not ExFAT",8,1);
+				OLED_Clear();
+				OLED_ShowString2(0,"Please Insert TF CARD",1);
+				OLED_ShowString2(1,"MBR ONLY, Not GPT",1);
+				OLED_ShowString2(2,"FAT32 ONLY, Not ExFAT",1);
 				OLED_Refresh();
 
 				while(1)
@@ -315,9 +333,10 @@ int main(void)
 			g_tf_block_num = 0;
 			g_tf_block_size = 0;
 	
-		  OLED_ShowString(0,0,"Please Insert TF CARD",8,1);
-	    OLED_ShowString(0,8,"MBR ONLY, Not GPT",8,1);
-	    OLED_ShowString(0,16,"FAT32 ONLY, Not ExFAT",8,1);
+			OLED_Clear();
+		  OLED_ShowString2(0,"Please Insert TF CARD",1);
+	    OLED_ShowString2(1,"MBR ONLY, Not GPT",1);
+	    OLED_ShowString2(2,"FAT32 ONLY, Not ExFAT",1);
 	    OLED_Refresh();
 
 				while(1)
@@ -329,15 +348,8 @@ int main(void)
 	}
 	/* TF END */
 
-	OLED_ShowString(0,0,"AM29 FSMC Programmer",8,1);//6*8 “ABC”
-	OLED_ShowString(0,8,"  By motozilog",8,1);//6*12 “ABC”
-	OLED_ShowString(0,16,"      V1.0",8,1);//6*12 “ABC”
-	OLED_Refresh();
-
   // 启动时通过USART1发送hello（波特率115200）
   printf("AM29 Programmer By motozilog V1.0\r\n");
-	
-
 
   /* USER CODE END 2 */
 
@@ -355,30 +367,38 @@ int main(void)
     // 循环读取输入，直到获取有效选择
     while(user_choice == 0)
     {
-        user_choice = UART_Read_User_Input();
-			  UART_Menu_Show();
-    }
+				user_choice = Get_User_Input();
+        HAL_Delay(50);  // 适当延时，避免CPU占用过高
+			}
     
     // 根据选择执行对应操作
     switch(user_choice)
     {
         case 1:
             AM29_Get_Id_And_Read10();
+				    NVIC_SystemReset();
             break;			
         case 2:
             AM29_Erase_And_Verify();
+						NVIC_SystemReset();
             break;            
         case 3:
             AM29_Write_And_Verify();
+						NVIC_SystemReset();
             break;
 				case 4:
 						AM29Read_To_File();
+		        Wait_Any_Key(0);  // 无限等待任意按键
+						NVIC_SystemReset();
 						break;
 				case 5:
             switch_to_udisk();
+		        Wait_Any_Key(0);  // 无限等待任意按键
+						NVIC_SystemReset();
             break;
         default:
             printf("未知选项，请重新选择\r\n");
+				    UART_Menu_Show();
             break;
     }
     
@@ -746,9 +766,277 @@ static void MX_FSMC_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+uint8_t KEY_UP_Detect(void)
+{
+    uint8_t key_flag = 0;
+    if(HAL_GPIO_ReadPin(GPIOC, UP_Pin) == GPIO_PIN_RESET)
+    {
+        HAL_Delay(10);
+        if(HAL_GPIO_ReadPin(GPIOC, UP_Pin) == GPIO_PIN_RESET)
+        {
+            key_flag = 1;
+            while(HAL_GPIO_ReadPin(GPIOC, UP_Pin) == GPIO_PIN_RESET);
+        }
+    }
+    return key_flag;
+}
+
+uint8_t KEY_DOWN_Detect(void)
+{
+    uint8_t key_flag = 0;
+    if(HAL_GPIO_ReadPin(GPIOC, DOWN_Pin) == GPIO_PIN_RESET)
+    {
+        HAL_Delay(10);
+        if(HAL_GPIO_ReadPin(GPIOC, DOWN_Pin) == GPIO_PIN_RESET)
+        {
+            key_flag = 1;
+            while(HAL_GPIO_ReadPin(GPIOC, DOWN_Pin) == GPIO_PIN_RESET);
+        }
+    }
+    return key_flag;
+}
+
+/**
+ * @brief  LEFT按键检测函数（需要先在main.h中定义LEFT_Pin和LEFT_PORT）
+ * @retval uint8_t: 1-按下，0-未按下
+ */
+uint8_t KEY_LEFT_Detect(void)
+{
+    uint8_t key_flag = 0;
+    if(HAL_GPIO_ReadPin(GPIOC, LEFT_Pin) == GPIO_PIN_RESET)
+    {
+        HAL_Delay(10);
+        if(HAL_GPIO_ReadPin(GPIOC, LEFT_Pin) == GPIO_PIN_RESET)
+        {
+            key_flag = 1;
+            while(HAL_GPIO_ReadPin(GPIOC, LEFT_Pin) == GPIO_PIN_RESET);
+        }
+    }
+    return key_flag;
+}
+
+/**
+ * @brief  RIGHT按键检测函数（需要先在main.h中定义RIGHT_Pin和RIGHT_PORT）
+ * @retval uint8_t: 1-按下，0-未按下
+ */
+uint8_t KEY_RIGHT_Detect(void)
+{
+    uint8_t key_flag = 0;
+    if(HAL_GPIO_ReadPin(GPIOC, RIGHT_Pin) == GPIO_PIN_RESET)
+    {
+        HAL_Delay(10);
+        if(HAL_GPIO_ReadPin(GPIOC, RIGHT_Pin) == GPIO_PIN_RESET)
+        {
+            key_flag = 1;
+            while(HAL_GPIO_ReadPin(GPIOC, RIGHT_Pin) == GPIO_PIN_RESET);
+        }
+    }
+    return key_flag;
+}
+
+uint8_t KEY_OK_Detect(void)
+{
+    uint8_t key_flag = 0;
+    if(HAL_GPIO_ReadPin(GPIOC, OK_Pin) == GPIO_PIN_RESET)
+    {
+        HAL_Delay(10);
+        if(HAL_GPIO_ReadPin(GPIOC, OK_Pin) == GPIO_PIN_RESET)
+        {
+            key_flag = 1;
+            while(HAL_GPIO_ReadPin(GPIOC, OK_Pin) == GPIO_PIN_RESET);
+        }
+    }
+    return key_flag;
+}
+
+// 获取用户输入（同时支持串口和按键）
+static uint8_t Get_User_Input(void)
+{
+    uint8_t ch = 0;
+    static uint8_t current_menu_line = 3;  // 当前选中的菜单行，默认第一项（菜单从第3行开始）
+    static uint8_t last_menu_line = 3;
+    static uint8_t menu_initialized = 0;
+    
+    // 首次进入时显示菜单
+    if(!menu_initialized)
+    {
+        OLED_ShowMenu(current_menu_line);
+        menu_initialized = 1;
+    }
+    
+    // 检测按键输入
+    if(KEY_UP_Detect())
+    {
+        if(current_menu_line > 3)  // 不能超过第一项（行3）
+        {
+            // 清除上一行的反色
+            OLED_MenuItemReverse(current_menu_line, 1);  // 第二次反色恢复原状
+            
+            current_menu_line--;
+            
+            // 新行反色
+            OLED_MenuItemReverse(current_menu_line, 1);
+            
+            printf("\r\n当前选择：行 %d\r\n", current_menu_line);
+        }
+    }
+    
+    if(KEY_DOWN_Detect())
+    {
+        if(current_menu_line < 7)  // 不能超过最后一项（行7）
+        {
+            // 清除上一行的反色
+            OLED_MenuItemReverse(current_menu_line, 1);  // 第二次反色恢复原状
+            
+            current_menu_line++;
+            
+            // 新行反色
+            OLED_MenuItemReverse(current_menu_line, 1);
+            
+            printf("\r\n当前选择：行 %d\r\n", current_menu_line);
+        }
+    }
+    
+    if(KEY_OK_Detect())
+    {
+        // 根据当前行返回对应的选项
+        switch(current_menu_line)
+        {
+            case 3: return 1;  // Get AM29 ID
+            case 4: return 2;  // Erase
+            case 5: return 3;  // Write
+            case 6: return 4;  // Read to TF
+            case 7: return 5;  // Switch to UDisk
+            default: return 0;
+        }
+    }
+    
+    // 检测串口输入（非阻塞）
+    if(HAL_UART_Receive(&huart1, &ch, 1, 0) == HAL_OK)
+    {
+        if(ch >= '1' && ch <= '5')
+        {
+            // 根据串口输入更新菜单显示
+            uint8_t new_line = 3 + (ch - '1');
+            if(new_line != current_menu_line)
+            {
+                OLED_MenuItemReverse(current_menu_line, 1);
+                current_menu_line = new_line;
+                OLED_MenuItemReverse(current_menu_line, 1);
+            }
+            return ch - '0';
+        }
+    }
+    
+    return 0;
+}
+
+
+/**
+ * @brief  获取任意按键输入（同时检测串口和物理按键）
+ * @retval uint8_t: 按键编码（具体定义见函数内部注释），0表示无输入
+ */
+static uint8_t Get_Any_Key(void)
+{
+    uint8_t ch = 0;
+    
+    // 1. 检测物理按键（上下左右确认取消）
+    if(KEY_UP_Detect())
+    {
+        printf("检测到：上键\r\n");
+        return 1;  // 上键返回1
+    }
+    
+    if(KEY_DOWN_Detect())
+    {
+        printf("检测到：下键\r\n");
+        return 2;  // 下键返回2
+    }
+    
+    if(KEY_LEFT_Detect())  // 需要实现LEFT按键检测
+    {
+        printf("检测到：左键\r\n");
+        return 3;  // 左键返回3
+    }
+    
+    if(KEY_RIGHT_Detect())  // 需要实现RIGHT按键检测
+    {
+        printf("检测到：右键\r\n");
+        return 4;  // 右键返回4
+    }
+    
+    if(KEY_OK_Detect())
+    {
+        printf("检测到：确认键\r\n");
+        return 5;  // 确认键返回5
+    }
+    
+    if(KEY_CANCEL_Detect())
+    {
+        printf("检测到：取消键\r\n");
+        return 6;  // 取消键返回6
+    }
+    
+    // 2. 检测串口输入（非阻塞）
+    if(HAL_UART_Receive(&huart1, &ch, 1, 0) == HAL_OK)
+    {
+        // 回显字符（除了控制字符）
+        if(ch >= 0x20 && ch <= 0x7E)  // 可打印字符
+        {
+            HAL_UART_Transmit(&huart1, &ch, 1, HAL_MAX_DELAY);
+            
+            // 特殊处理：回车换行
+            if(ch == '\r')
+            {
+                printf("\n");
+            }
+        }
+        
+        // 返回串口字符（保留原始值，包括控制字符）
+        return ch;
+    }
+    
+    return 0;  // 无输入
+}
+
+
+/**
+ * @brief  等待任意按键按下（阻塞版）
+ * @param  timeout_ms: 超时时间（毫秒），0表示无限等待
+ * @retval uint8_t: 按键编码（同Get_Any_Key），超时返回0
+ */
+static uint8_t Wait_Any_Key(uint32_t timeout_ms)
+{
+    uint32_t tickstart = HAL_GetTick();
+    uint8_t key = 0;
+    
+    printf("请按任意键继续...\r\n");
+    
+    while(1)
+    {
+        key = Get_Any_Key();
+        if(key != 0)
+        {
+            printf("\r\n");  // 换行
+            return key;
+        }
+        
+        // 超时检查
+        if(timeout_ms > 0 && (HAL_GetTick() - tickstart) >= timeout_ms)
+        {
+            return 0;  // 超时返回0
+        }
+        
+        HAL_Delay(10);  // 适当延时，避免CPU占用过高
+    }
+}
+
+
 // 串口菜单交互逻辑（放在BEGIN 4：函数定义区）
 static void UART_Menu_Show(void)
 {
+		OLED_ShowMenu(3);  // 参数3表示默认选中第一项菜单（从第3行开始）
+
     printf("\r\n===== AM29编程器FSMC by motozilog =====\r\n");
     printf("1 - 获取AM29 ID并读取前10字\r\n");
 		printf("2 - 整芯片擦除并查空验证\r\n");
@@ -758,6 +1046,8 @@ static void UART_Menu_Show(void)
 
     printf("=== If Chinese display error, set terminal to GBK(DO NOT USE UTF8). ===\r\n");
     printf("请输入操作编号，按回车确认：");
+	
+	
 }
 
 static void switch_to_udisk(void)
@@ -820,10 +1110,17 @@ static void switch_to_udisk(void)
     printf("等待USB枚举完成...\r\n");
     tickstart = HAL_GetTick();
     
-    while ((HAL_GetTick() - tickstart) < 10000) {  // 等待10秒
-        HAL_Delay(500);
+    while ((HAL_GetTick() - tickstart) < 20000) {  // 等待10秒
+        HAL_Delay(1000);
         printf("等待中... (状态: %d)\r\n", hUsbDeviceFS.dev_state);
         
+				//显示
+				OLED_Clear();
+				printfOled(0,1,"Switch To Udisk");
+				printfOled(1,1,"Wait for PC");
+				printfOled(2,1,"State: %d", hUsbDeviceFS.dev_state);
+			  OLED_Refresh();
+			  
         if (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED) {
             printf("USB设备已配置！\r\n");
             break;
@@ -834,11 +1131,27 @@ static void switch_to_udisk(void)
         printf("USB设备已初始化，现在可以作为U盘连接到电脑\r\n");
     } else {
         printf("USB设备状态异常: %d\r\n", hUsbDeviceFS.dev_state);
+			  
+				//显示
+				OLED_Clear();
+				printfOled(0,1,"To Udisk Fail");
+				printfOled(1,1,"Code: %d", hUsbDeviceFS.dev_state);
+				printfOled(7,1,"Press any key");		
+				OLED_Refresh();
+			  return;
     }
     
     
     printf("请在电脑上操作U盘，弹出U盘时将重启...\r\n");
     
+		//显示
+		OLED_Clear();
+		printfOled(0,1,"UDisk Success");
+		printfOled(1,1,"Operate in PC");
+		OLED_Refresh();
+
+		
+		
     // ========== 弹出检测逻辑 ==========
     uint32_t start_time = HAL_GetTick();
     uint32_t last_usb_state = hUsbDeviceFS.dev_state;
@@ -968,13 +1281,22 @@ static uint8_t UART_Read_User_Input(void)
                 printf("\r\n");
                 break;
             }
-            // 处理有效字符
-            else if(input_len < sizeof(input_buf)-1 && (ch >= '1' && ch <= '6')) 
-						{
-								input_buf[input_len++] = ch;
-								HAL_UART_Transmit(&huart1, &ch, 1, HAL_MAX_DELAY); // 回显有效字符
-						}
-            // 其他无效字符（不回显、不存储）
+            // 处理有效字符（数字1-9、0、b/B）
+            else if(input_len < sizeof(input_buf)-1)
+            {
+                // 允许输入：数字1-9、0、b、B
+                if((ch >= '1' && ch <= '9') || ch == '0' || ch == 'b' || ch == 'B')
+                {
+                    input_buf[input_len++] = ch;
+                    HAL_UART_Transmit(&huart1, &ch, 1, HAL_MAX_DELAY); // 回显有效字符
+                }
+                // 其他无效字符（不回显、不存储）
+                else
+                {
+                    continue;
+                }
+            }
+            // 输入缓冲区已满，忽略后续字符
             else
             {
                 continue;
@@ -983,39 +1305,40 @@ static uint8_t UART_Read_User_Input(void)
     }
     
     // 解析输入
-     if(input_len == 1)
+    if(input_len == 1)
     {
-        if(input_buf[0] == '1') return 1;
-        if(input_buf[0] == '2') return 2;
-        if(input_buf[0] == '3') return 3;
-        if(input_buf[0] == '4') return 4;
-        if(input_buf[0] == '5') return 5;
-        if(input_buf[0] == '6') return 6;
+        // 数字1-9直接返回数字值
+        if(input_buf[0] >= '1' && input_buf[0] <= '9')
+        {
+            return input_buf[0] - '0';
+        }
+        // 数字0返回0
+        else if(input_buf[0] == '0')
+        {
+            return 'a';
+        }
+        // 字母b/B返回'b'的ASCII码（用于后续判断）
+        else if(input_buf[0] == 'b' || input_buf[0] == 'B')
+        {
+            return 'b';  // 统一返回小写b，便于判断
+        }
     }
     
     // 无效输入提示
-    printf("输入无效！请重新输入并按回车确认：");
-    return 0;
+    printf("输入无效！请重新输入（1-9选择文件，9下一页，0上一页，b返回）：");
+    return 0x0;  // 返回特殊值表示无效输入
 }
+
 
 // 擦除并查空验证（独立函数封装）
 static void AM29_Get_Id_And_Read10(void)
 {
 	  uint32_t am29lv320_id_32bit = 0;
 
-		// 可选：读取0x0000开始的多个数据（示例读取前5个半字）
-    uint16_t data_buf[5] = {0};
-    AM29LV320_Read_Data(0, 5, data_buf);
-    printf("0x0000~0x0009 Data: ");
-    for(int i=0; i<5; i++)
-    {
-      printf("0x%04X ", data_buf[i]);
-    }
-    printf("\r\n");
-
-			// 读取AM29LV320 ID
-			am29lv320_id_32bit = AM29LV320_Read_ID();
-			printf("AM29 ID: 0x%08X\r\n", am29lv320_id_32bit);
+		// 读取AM29LV320 ID
+		am29lv320_id_32bit = AM29LV320_Read_ID();
+		printf("AM29 ID: 0x%08X\r\n", am29lv320_id_32bit);
+		
 
 		// 读取并打印CFI容量信息
 		uint16_t cfi_cap_val = AM29LV320_Read_CFI_Capacity();
@@ -1023,13 +1346,42 @@ static void AM29_Get_Id_And_Read10(void)
 		printf("AM29 CFI容量原始值: 0x%04X\r\n", cfi_cap_val);
 		if(actual_cap > 0)
 		{
-				printf("AM29容量: %lu Bytes (%lu KByte)\r\n", 
-							 (unsigned long)actual_cap, (unsigned long)((unsigned long)actual_cap / 1024 ));
+				printf("AM29容量: %u Bytes (%u KByte)\r\n", 
+							 actual_cap, (actual_cap / 1024 ));
 		}
 		else
 		{
 				printf("获取AM29容量错误\r\n");
 		}
+		
+		
+		//读取0x0000开始的多个数据（示例读取前5个半字）
+    uint16_t data_buf[6] = {0};
+    AM29LV320_Read_Data(0, 6, data_buf);
+    printf("0x00~0x0B Data: ");
+    for(int i=0; i<6; i++)
+    {
+      printf("0x%04X ", data_buf[i]);
+    }
+    printf("\r\n");
+
+		
+		//显示
+		OLED_Clear();
+		printfOled(0,1,"AM29 ID: 0x%08X", am29lv320_id_32bit);
+		printfOled(1,1,"CFI: 0x%04X", cfi_cap_val);
+		printfOled(2,1,"%u Bytes", actual_cap);
+		printfOled(3,1,"%u KBytes", actual_cap / 1024 );
+		printfOled(4,1,"0x00-0x0B:");
+		printfOled(5,1,"0x%04X %04X %04X",data_buf[0],data_buf[1],data_buf[2]);
+		printfOled(6,1,"0x%04X %04X %04X",data_buf[3],data_buf[4],data_buf[5]);
+		printfOled(7,1,"Press any key");		
+		OLED_Refresh();
+		
+		// 等待任意按键后返回主菜单
+    printf("\r\n操作完成，");
+    Wait_Any_Key(0);  // 无限等待任意按键
+
 }
 
 
@@ -1070,12 +1422,28 @@ uint8_t AM29Read_To_File(void)
     if(cap == 0)
     {
         printf("获取AM29容量失败！\r\n");
-        return 99;
+			
+			// OLED显示失败
+      OLED_Clear();
+      printfOled(0,1,"Read Failed!");
+      printfOled(1,1,"Get CFI Cap Fail");
+      printfOled(7,1,"Press any key");
+      OLED_Refresh();
+
+			return 99;
     }
     else if(cap > 0x1C)
     {
-        printf("最大只支持S70GL02\r\n");
-        return 98;
+      printf("最大只支持S70GL02 256M\r\n");
+
+			// OLED显示失败
+      OLED_Clear();
+      printfOled(0,1,"Read Failed!");
+      printfOled(1,1,"Max support:256M");
+      printfOled(7,1,"Press any key");
+      OLED_Refresh();
+
+      return 98;
     }
     
     AM29_CAPACITY = AM29LV320_Parse_CFI_Capacity(cap);
@@ -1089,6 +1457,13 @@ uint8_t AM29Read_To_File(void)
     if(res != FR_OK)
     {
         printf("TF卡挂载失败! 错误码: %d\r\n", res);
+
+			// OLED显示失败
+      OLED_Clear();
+      printfOled(0,1,"Read Failed!");
+      printfOled(1,1,"TF NOT Found");
+      printfOled(7,1,"Press any key");
+      OLED_Refresh();
         return 2;
     }
     
@@ -1105,7 +1480,16 @@ uint8_t AM29Read_To_File(void)
         else
         {
             printf("创建AM29R目录失败! 错误码: %d\r\n", res);
-            f_mount(NULL, vol, 1);
+
+					// OLED显示失败
+      OLED_Clear();
+      printfOled(0,1,"Read Failed!");
+      printfOled(1,1,"Create AM29R Dir");
+      printfOled(2,1,"Failed!");
+      printfOled(7,1,"Press any key");
+      OLED_Refresh();
+
+					f_mount(NULL, vol, 1);
             return 3;
         }
     }
@@ -1115,59 +1499,86 @@ uint8_t AM29Read_To_File(void)
         printf("AM29R目录已存在\r\n");
     }
     
-    // 4. 查找下一个可用的文件名编号
-    printf("扫描AM29R目录中的文件...\r\n");
-    res = f_opendir(&dir, path);
-    if(res == FR_OK)
-    {
-        uint32_t max_num = 0;
-        while(1)
-        {
-            res = f_readdir(&dir, &fno);
-            if(res != FR_OK || fno.fname[0] == 0) break;
-            
-            if((fno.fattrib & AM_DIR) == 0)
-            {
-                // 检查文件名格式是否为 00000000.bin
-                char* suffix = strrchr(fno.fname, '.');
-                if(suffix && strcmp(suffix, ".bin") == 0)
-                {
-                    // 尝试解析前8位数字
-                    if(strlen(fno.fname) >= 12)  // 8位数字 + .bin = 12字符
-                    {
-                        char num_str[9] = {0};
-                        strncpy(num_str, fno.fname, 8);
-                        
-                        // 检查是否全是数字
-                        uint8_t all_digit = 1;
-                        for(int i = 0; i < 8; i++)
-                        {
-                            if(num_str[i] < '0' || num_str[i] > '9')
-                            {
-                                all_digit = 0;
-                                break;
-                            }
-                        }
-                        
-                        if(all_digit)
-                        {
-                            uint32_t file_num = atoi(num_str);
-                            if(file_num > max_num)
-                            {
-                                max_num = file_num;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        f_closedir(&dir);
-        
-        next_file_num = max_num + 1;
-        printf("最大文件编号: %08lu, 下一个编号: %08lu\r\n", 
-               (unsigned long)max_num, (unsigned long)next_file_num);
-    }
-    
+		// 4. 查找下一个可用的文件名编号（最大编号+1）
+		printf("扫描AM29R目录中的文件...\r\n");
+		res = f_opendir(&dir, path);
+		if(res == FR_OK)
+		{
+				uint32_t max_num = 0;  // 记录最大编号，从0开始
+				
+				while(1)
+				{
+						res = f_readdir(&dir, &fno);
+						if(res != FR_OK || fno.fname[0] == 0) break;
+						
+						// 只处理文件，忽略目录
+						if((fno.fattrib & AM_DIR) == 0)
+						{
+								// 打印原始文件名（用于调试）
+								printf("发现文件: \"%s\" (长度:%d)\r\n", fno.fname, strlen(fno.fname));
+								
+								// 获取文件名长度
+								uint8_t name_len = strlen(fno.fname);
+								
+								// 检查是否符合8.3格式：8位数字 + .bin（总长度12字符）
+								if(name_len == 12)
+								{
+										// 检查扩展名是否为.bin（不区分大小写）
+										char* suffix = strrchr(fno.fname, '.');
+										if(suffix && (strcmp(suffix, ".bin") == 0 || strcmp(suffix, ".BIN") == 0))
+										{
+												// 检查前8个字符是否全为数字
+												uint8_t all_digit = 1;
+												for(int i = 0; i < 8; i++)
+												{
+														if(fno.fname[i] < '0' || fno.fname[i] > '9')
+														{
+																all_digit = 0;
+																break;
+														}
+												}
+												
+												if(all_digit)
+												{
+														// 提取前8位数字并转换为数值
+														char num_str[9] = {0};
+														strncpy(num_str, fno.fname, 8);
+														uint32_t file_num = atoi(num_str);
+														
+														printf("  匹配成功: 编号=%lu\r\n", (unsigned long)file_num);
+														
+														// 更新最大编号（忽略00000000.bin）
+														if(file_num > max_num)
+														{
+																max_num = file_num;
+														}
+												}
+												else
+												{
+														printf("  前8字符不是全数字\r\n");
+												}
+										}
+										else
+										{
+												printf("  扩展名不是.bin\r\n");
+										}
+								}
+								else
+								{
+										// 如果长度不是12，可能是长文件名
+										printf("  长度不是12，跳过\r\n");
+								}
+						}
+				}
+				f_closedir(&dir);
+				
+				// 下一个编号 = 最大编号 + 1
+				next_file_num = max_num + 1;
+				
+				printf("最大文件编号: %08lu, 下一个编号: %08lu\r\n", 
+							 (unsigned long)max_num, (unsigned long)next_file_num);
+		}
+		
     // 5. 生成文件名
     sprintf(file_path, "%s/%08lu.bin", path, (unsigned long)next_file_num);
     printf("准备创建文件: %s\r\n", file_path);
@@ -1177,7 +1588,17 @@ uint8_t AM29Read_To_File(void)
     if(res != FR_OK)
     {
         printf("创建文件失败! 错误码: %d\r\n", res);
-        f_mount(NULL, vol, 1);
+
+			// OLED显示失败
+      OLED_Clear();
+      printfOled(0,1,"Read Failed!");
+      printfOled(1,1,"Create File Failed");
+      printfOled(2,1,"%s", file_path);
+      printfOled(3,1,"Code:%d", res);
+      printfOled(7,1,"Press any key");
+      OLED_Refresh();
+			
+			f_mount(NULL, vol, 1);
         return 4;
     }
     
@@ -1222,6 +1643,16 @@ uint8_t AM29Read_To_File(void)
         if (res != FR_OK || bw != block_size)
         {
             printf("文件写入失败! 错误码: %d\r\n", res);
+
+						// OLED显示失败
+						OLED_Clear();
+						printfOled(0,1,"Read Failed!");
+						printfOled(1,1,"File write fail");
+						printfOled(2,1,"%s", file_path);
+						printfOled(3,1,"Code:%d", res);
+						printfOled(7,1,"Press any key");
+						OLED_Refresh();
+					
             f_close(&file);
             f_mount(NULL, vol, 1);
             return 5;
@@ -1237,6 +1668,10 @@ uint8_t AM29Read_To_File(void)
                    (unsigned long)read_bytes,
                    (unsigned long)AM29_CAPACITY,
                    percent);
+						// OLED显示进度
+						OLED_Clear();
+						printfOled(0,1,"Read: %.1f%%", percent);
+						OLED_Refresh();
             
             // LED闪烁提示
             HAL_GPIO_TogglePin(LEDG_PORT, LEDG_PIN);
@@ -1253,7 +1688,7 @@ uint8_t AM29Read_To_File(void)
         printf("读取结束时间：%04d-%02d-%02d %02d:%02d:%02d\r\n",
                2000+read_end_date.Year, read_end_date.Month, read_end_date.Date,
                read_end_time.Hours, read_end_time.Minutes, read_end_time.Seconds);
-        printf("总耗时：%lu 秒\r\n", (unsigned long)read_total_seconds);
+        printf("总耗时：%u 秒\r\n", read_total_seconds);
     }
     
     // 11. 关闭文件并卸载TF卡
@@ -1265,8 +1700,18 @@ uint8_t AM29Read_To_File(void)
     HAL_Delay(1);
     
     printf("\r\n===== 读取完成！文件已保存为：%s =====\r\n", file_path);
-    printf("文件大小：%lu 字节\r\n", (unsigned long)read_bytes);
+    printf("文件大小：%u 字节\r\n", read_bytes);
     
+		// OLED显示
+		OLED_Clear();
+		printfOled(0,1,"Read Success!");
+		printfOled(1,1,"%u S", read_total_seconds);
+		printfOled(2,1,"%s", file_path);
+		printfOled(3,1,"%uKBytes", read_bytes/1024);
+		
+		printfOled(7,1,"Press any key");
+		OLED_Refresh();
+		
     return 0;
 }
 
@@ -1274,17 +1719,81 @@ uint8_t AM29Read_To_File(void)
 // 擦除并查空验证（独立函数封装）
 static void AM29_Erase_And_Verify(void)
 {
-    uint8_t erase_ret = AM29LV320_Chip_Erase();
-    if(erase_ret == 0)
+    uint8_t confirm = 0;
+    uint8_t key = 0;
+    
+    // 显示警告信息
+    printf("\r\n========================================\r\n");
+    printf("    警告：即将执行整芯片擦除操作！\r\n");
+    printf("    擦除后所有数据将丢失！\r\n");
+    printf("========================================\r\n");
+    
+    // 在OLED上显示警告
+    OLED_Clear();
+    printfOled(0,1,"WARNING!");
+    printfOled(1,1,"Chip Erase");
+    printfOled(2,1,"All data will");
+    printfOled(3,1,"be lost!");
+    printfOled(4,1,"Press R or OK");
+    printfOled(5,1,"to continue");
+    printfOled(6,1,"Press others");
+    printfOled(7,1,"to cancel");
+    OLED_Refresh();
+    
+    printf("请输入 Y 确认擦除，或按右键/确认键继续，其他键取消：\r\n");
+    
+    // 等待用户确认（超时30秒）
+    key = Wait_Any_Key(30000);
+    
+    // 检查确认条件：Y/y 或者右键 或者确认键
+    if(key == 'Y' || key == 'y' || key == 4 || key == 5)  // 4=右键, 5=确认键
     {
-        // 擦除成功后，读取0x0000地址验证（擦除后应为0xFFFF）
-        uint16_t data = AM29LV320_Read_0x0000();
-        printf("Erase Verify 0x0000: 0x%04X\r\n", data);
-    }    
+        printf("\r\n用户已确认，开始擦除芯片...\r\n");
+        
+        // OLED显示擦除中
+        OLED_Clear();
+        printfOled(0,1,"Erasing...");
+        printfOled(1,1,"Please wait");
+        OLED_Refresh();
+        
+        uint8_t erase_ret = AM29LV320_Chip_Erase();
+//        if(erase_ret == 0)
+//        {
+//            // 擦除成功后，读取0x0000地址验证（擦除后应为0xFFFF）
+//            uint16_t data = AM29LV320_Read_0x0000();
+//            printf("擦除成功！验证 0x0000: 0x%04X\r\n", data);
+//        }
+//        else
+//        {
+//            printf("擦除失败！错误码：%d\r\n", erase_ret);            
+//        }
+    }
+    else if(key != 0)
+    {
+        printf("\r\n操作已取消\r\n");
+        
+        OLED_Clear();
+        printfOled(0,1,"Operation");
+        printfOled(1,1,"Cancelled");
+        printfOled(7,1,"Press any key");
+        OLED_Refresh();
+    }
+    else
+    {
+        printf("\r\n等待超时，操作已取消\r\n");
+        
+        OLED_Clear();
+        printfOled(0,1,"Timeout");
+        printfOled(1,1,"Cancelled");
+        printfOled(7,1,"Press any key");
+        OLED_Refresh();
+    }
+    
+    // 等待任意按键返回主菜单
+    Wait_Any_Key(0);
 }
 
-// 写入BIN文件并校验（独立函数封装）
-// 分页显示和选择AM29目录下的.bin文件
+// 写入BIN文件并校验
 static void AM29_Write_And_Verify(void)
 {
     uint8_t bin_file_cnt = 0;
@@ -1295,6 +1804,8 @@ static void AM29_Write_And_Verify(void)
     uint8_t selected_file_index = 0;
     uint8_t file_selected = 0;
     char selected_filename[256] = {0};
+    uint8_t current_selection = 0;  // 当前选中的文件在当前页的索引(0-7)
+    uint8_t last_selection = 0;      // 上一次选中的行，用于恢复反色
     
     // 获取AM29目录下的所有.bin文件
     printf("\r\n===== 正在扫描AM29目录下的.bin文件 =====\r\n");
@@ -1303,28 +1814,87 @@ static void AM29_Write_And_Verify(void)
     if (bin_file_list == NULL || bin_file_cnt == 0)
     {
         printf("AM29目录下没有找到.bin文件，请先放入文件再操作\r\n");
+        
+        // OLED显示无文件
+        OLED_Clear();
+        printfOled(0,1,"No BIN files");
+        printfOled(1,1,"found in AM29");
+        printfOled(2,1,"directory");
+        printfOled(7,1,"Press any key");
+        OLED_Refresh();
+        Wait_Any_Key(0);
         return;
     }
     
-    // 计算总页数（每页4个文件）
-    total_pages = (bin_file_cnt + 3) / 4; // 向上取整
+    // 计算总页数（每页8个文件）
+    total_pages = (bin_file_cnt + 7) / 8; // 向上取整
+    
+    // 初始化上一次选中行
+    last_selection = 0;
     
     // 循环让用户选择文件
     while (!file_selected)
     {
-        // 清屏（简单的分隔线）
+        // 计算当前页的文件范围
+        uint8_t start_idx = current_page * 8;
+        uint8_t end_idx = start_idx + 8;
+        if (end_idx > bin_file_cnt) end_idx = bin_file_cnt;
+        uint8_t files_on_page = end_idx - start_idx;
+        
+        // 初始化当前选择（如果当前选择超出范围，重置为0）
+        if (current_selection >= files_on_page)
+        {
+            current_selection = 0;
+        }
+        
+        // 显示OLED菜单（8行全部显示文件）
+        OLED_Clear();
+        
+        // 显示所有文件（不带反色）
+        for (uint8_t i = 0; i < 8; i++)
+        {
+            if (i < files_on_page)
+            {
+                uint8_t file_idx = start_idx + i;
+                
+                // 显示文件名（截断到合适长度）
+                char display_name[17] = {0};  // 16字符 + 终止符
+                strncpy(display_name, bin_file_list[file_idx].filename, 16);
+                
+                // 所有行先正常显示（不带箭头）
+                printfOled(i,1," %s", display_name);  // mode=1 正常显示
+            }
+            else
+            {
+                // 空白行
+                printfOled(i,1,"                ");  // 16个空格，mode=1正常显示
+            }
+        }
+        
+        // 单独处理当前选中行：加箭头并设置反色
+        if (current_selection < files_on_page)
+        {
+            uint8_t file_idx = start_idx + current_selection;
+            char display_name[17] = {0};
+            strncpy(display_name, bin_file_list[file_idx].filename, 16);
+            
+            // 重新显示当前行带箭头（用正常模式显示，然后取反）
+            printfOled(current_selection,1,">%s", display_name);  // mode=1正常显示
+            
+            // 对整行取反实现反色效果
+            OLED_MenuItemReverse(current_selection, 1);  // 1=反色
+        }
+        
+        OLED_Refresh();
+        
+        // 串口显示（保持不变）
         printf("\r\n========================================\r\n");
         printf("===== 请选择要写入的BIN文件 (共%d个) =====\r\n", bin_file_cnt);
         printf("========================================\r\n");
         
-        // 显示当前页的文件列表
-        uint8_t start_idx = current_page * 4;
-        uint8_t end_idx = start_idx + 4;
-        if (end_idx > bin_file_cnt) end_idx = bin_file_cnt;
-        
         for (uint8_t i = start_idx; i < end_idx; i++)
         {
-            uint8_t display_num = (i - start_idx) + 1; // 当前页内的编号 1-4
+            uint8_t display_num = (i - start_idx) + 1; // 当前页内的编号 1-8
             printf("%d - %s (%lu 字节)\r\n", 
                    display_num, 
                    bin_file_list[i].filename,
@@ -1333,106 +1903,298 @@ static void AM29_Write_And_Verify(void)
         
         printf("\r\n");
         
-        // 显示翻页提示
         if (total_pages > 1)
         {
             printf("当前第 %d/%d 页\r\n", current_page + 1, total_pages);
-            printf("5 - 下一页\r\n");
-            printf("6 - 上一页\r\n");
+            printf("9 - 下一页\r\n");
+            printf("0 - 上一页\r\n");
         }
         
-        printf("0 - 返回主菜单\r\n");
-        printf("请选择 (1-%d, 5/6翻页, 0返回): ", (end_idx - start_idx));
+        printf("b - 返回主菜单\r\n");
+        printf("请选择 (1-%d, 9下一页, 0上一页, b返回, 或使用上下键选择按OK确认): ", files_on_page);
         
-        // 获取用户输入
-        user_choice = UART_Read_User_Input();
+        // 获取用户输入（同时检测按键和串口）
+        uint8_t input_detected = 0;
+        uint8_t key = 0;
         
-        // 处理用户选择
-        if (user_choice == 0)
+        while (!input_detected)
         {
-            printf("已返回主菜单\r\n");
-            return;
-        }
-        else if (user_choice == 5) // 下一页
-        {
-            if (current_page < total_pages - 1)
+            // 检测按键
+            if (KEY_UP_Detect())
             {
-                current_page++;
+                if (current_selection > 0)
+                {
+                    current_selection--;
+                }
+                else
+                {
+                    // 如果在第一项，按上键跳到上一页的最后一项
+                    if (current_page > 0)
+                    {
+                        current_page--;
+                        // 重新计算上一页的文件数量
+                        uint8_t prev_start = current_page * 8;
+                        uint8_t prev_end = prev_start + 8;
+                        if (prev_end > bin_file_cnt) prev_end = bin_file_cnt;
+                        current_selection = (prev_end - prev_start) - 1;
+                    }
+                }
+                input_detected = 1;
+                break;
             }
-            else
+            
+            if (KEY_DOWN_Detect())
             {
-                printf("已经是最后一页了！\r\n");
-                HAL_Delay(500); // 短暂延迟让用户看到提示
+                uint8_t files_on_current = end_idx - start_idx;
+                if (current_selection < files_on_current - 1)
+                {
+                    current_selection++;
+                }
+                else
+                {
+                    // 如果在最后一项，按下键跳到下一页的第一项
+                    if (current_page < total_pages - 1)
+                    {
+                        current_page++;
+                        current_selection = 0;
+                    }
+                }
+                input_detected = 1;
+                break;
             }
-        }
-        else if (user_choice == 6) // 上一页
-        {
-            if (current_page > 0)
+            
+            if (KEY_LEFT_Detect())  // 左键上一页
             {
-                current_page--;
+                if (current_page > 0)
+                {
+                    current_page--;
+                    current_selection = 0;
+                    input_detected = 1;
+                }
+                break;
             }
-            else
+            
+            if (KEY_RIGHT_Detect())  // 右键下一页
             {
-                printf("已经是第一页了！\r\n");
-                HAL_Delay(500);
+                if (current_page < total_pages - 1)
+                {
+                    current_page++;
+                    current_selection = 0;
+                    input_detected = 1;
+                }
+                break;
             }
-        }
-        else if (user_choice >= 1 && user_choice <= 4) // 选择了文件
-        {
-            selected_file_index = start_idx + (user_choice - 1);
-            if (selected_file_index < bin_file_cnt)
+            
+            if (KEY_OK_Detect())
             {
-                // 复制选中的文件名
-                strncpy(selected_filename, bin_file_list[selected_file_index].filename, sizeof(selected_filename) - 1);
-                file_selected = 1;
+                // 确认选择当前文件
+                selected_file_index = start_idx + current_selection;
+                if (selected_file_index < bin_file_cnt)
+                {
+                    strncpy(selected_filename, bin_file_list[selected_file_index].filename, sizeof(selected_filename) - 1);
+                    file_selected = 1;
+                    input_detected = 1;
+                }
+                break;
             }
-            else
+            
+            if (KEY_CANCEL_Detect())
             {
-                printf("无效的选择！\r\n");
-                HAL_Delay(500);
+                printf("已返回主菜单\r\n");
+                
+                OLED_Clear();
+                printfOled(0,1,"Return to");
+                printfOled(1,1,"Main Menu");
+                printfOled(7,1,"Press any key");
+                OLED_Refresh();
+                Wait_Any_Key(0);
+                return;
             }
-        }
-        else
-        {
-            printf("无效的输入！请重新选择\r\n");
-            HAL_Delay(500);
+            
+            // 检测串口输入（非阻塞）
+            if (HAL_UART_Receive(&huart1, &key, 1, 0) == HAL_OK)
+            {
+                // 回显字符
+                if (key >= 0x20 && key <= 0x7E)
+                {
+                    HAL_UART_Transmit(&huart1, &key, 1, HAL_MAX_DELAY);
+                }
+                
+                // 处理数字输入
+                if (key >= '1' && key <= '8')
+                {
+                    uint8_t choice_num = key - '0';
+                    if (choice_num <= files_on_page)
+                    {
+                        selected_file_index = start_idx + (choice_num - 1);
+                        if (selected_file_index < bin_file_cnt)
+                        {
+                            strncpy(selected_filename, bin_file_list[selected_file_index].filename, sizeof(selected_filename) - 1);
+                            file_selected = 1;
+                            input_detected = 1;
+                            printf("\r\n");
+                        }
+                    }
+                }
+                else if (key == '9') // 下一页
+                {
+                    if (current_page < total_pages - 1)
+                    {
+                        current_page++;
+                        current_selection = 0;
+                        input_detected = 1;
+                        printf("\r\n");
+                    }
+                    else
+                    {
+                        printf("\r\n已经是最后一页了！\r\n");
+                    }
+                }
+                else if (key == '0') // 上一页
+                {
+                    if (current_page > 0)
+                    {
+                        current_page--;
+                        current_selection = 0;
+                        input_detected = 1;
+                        printf("\r\n");
+                    }
+                    else
+                    {
+                        printf("\r\n已经是第一页了！\r\n");
+                    }
+                }
+                else if (key == 'b' || key == 'B') // 返回主菜单
+                {
+                    printf("\r\n已返回主菜单\r\n");
+                    
+                    OLED_Clear();
+                    printfOled(0,1,"Return to");
+                    printfOled(1,1,"Main Menu");
+                    printfOled(7,1,"Press any key");
+                    OLED_Refresh();
+                    Wait_Any_Key(0);
+                    return;
+                }
+                break;
+            }
+            
+            HAL_Delay(20); // 适当延时，避免CPU占用过高
         }
     }
     
     // 确认选择
     printf("\r\n您选择了文件：%s\r\n", selected_filename);
-    printf("按回车键开始写入，按其他键取消...\r\n");
     
-    // 等待用户确认（简化版，只检测回车）
+    // OLED显示选择的文件
+    OLED_Clear();
+    printfOled(0,1,"Selected:");
+    
+    // 显示文件名（可能很长，需要分行）
+    char* filename = selected_filename;
+    uint8_t name_len = strlen(filename);
+    if (name_len <= 16)
+    {
+        printfOled(1,1,"%s", filename);
+    }
+    else
+    {
+        // 分行显示
+        char line1[17] = {0};
+        char line2[17] = {0};
+        strncpy(line1, filename, 16);
+        strncpy(line2, filename + 16, 16);
+        printfOled(1,1,"%s", line1);
+        printfOled(2,1,"%s", line2);
+    }
+    
+    printfOled(4,1,"Press OK to");
+    printfOled(5,1,"start write");
+    printfOled(6,1,"Press Cancel");
+    printfOled(7,1,"to abort");
+    OLED_Refresh();
+    
+    printf("按OK键开始写入，按取消键取消...\r\n");
+    
+    // 等待用户确认（检测OK键或回车）
     uint8_t confirm = 0;
     uint8_t ch = 0;
-    if (HAL_UART_Receive(&huart1, &ch, 1, 5000) == HAL_OK)
+    uint32_t confirm_timeout = HAL_GetTick();
+    
+    while ((HAL_GetTick() - confirm_timeout) < 10000) // 10秒超时
     {
-        if (ch == '\r' || ch == '\n')
+        if (KEY_OK_Detect())
         {
             confirm = 1;
+            break;
         }
+        
+        if (KEY_CANCEL_Detect())
+        {
+            confirm = 0;
+            break;
+        }
+        
+        // 检测串口回车
+        if (HAL_UART_Receive(&huart1, &ch, 1, 0) == HAL_OK)
+        {
+            if (ch == '\r' || ch == '\n')
+            {
+                confirm = 1;
+                break;
+            }
+        }
+        
+        HAL_Delay(50);
     }
     
     if (confirm)
     {
         printf("\r\n===== 开始写入文件: %s =====\r\n", selected_filename);
         
+        // OLED显示开始写入
+        OLED_Clear();
+        printfOled(0,1,"Writing...");
+        printfOled(1,1,"%s", selected_filename);
+        OLED_Refresh();
+        
         // 执行写入操作
         uint8_t file_write_ret = AM29LV320_Write_Data_From_File(selected_filename);
         
-        if (file_write_ret == 0)
-        {
-            printf("\r\n===== %s 写入成功 =====\r\n", selected_filename);
-        }
-        else
-        {
-            printf("\r\n===== %s 写入失败，错误码：%d =====\r\n", selected_filename, file_write_ret);
-        }
+//        if (file_write_ret == 0)
+//        {
+//            printf("\r\n===== %s 写入成功 =====\r\n", selected_filename);
+//            
+//            OLED_Clear();
+//            printfOled(0,1,"Write Success!");
+//            printfOled(1,1,"%s", selected_filename);
+//            printfOled(7,1,"Press any key");
+//            OLED_Refresh();
+//        }
+//        else
+//        {
+//            printf("\r\n===== %s 写入失败，错误码：%d =====\r\n", selected_filename, file_write_ret);
+//            
+//            OLED_Clear();
+//            printfOled(0,1,"Write Failed!");
+//            printfOled(1,1,"Error: %d", file_write_ret);
+//            printfOled(7,1,"Press any key");
+//            OLED_Refresh();
+//        }
+        
+        // 等待任意按键返回主菜单
+        Wait_Any_Key(0);
     }
     else
     {
         printf("操作已取消\r\n");
+        
+        OLED_Clear();
+        printfOled(0,1,"Operation");
+        printfOled(1,1,"Cancelled");
+        printfOled(7,1,"Press any key");
+        OLED_Refresh();
+        Wait_Any_Key(0);
     }
 }
 
@@ -1753,6 +2515,14 @@ uint8_t AM29LV320_Chip_Erase(void)
 		{
 			//获取容量失败
 			printf("获取容量失败\r\n");
+			
+			// OLED显示失败
+      OLED_Clear();
+      printfOled(0,1,"Erase Failed!");
+      printfOled(1,1,"Get CFI Cap Fail");
+      printfOled(7,1,"Press any key");
+      OLED_Refresh();
+			
 			return 99;
 		} 
 		else if(cap<=0x14)
@@ -1767,6 +2537,14 @@ uint8_t AM29LV320_Chip_Erase(void)
 		else
 		{
 			printf("最大支持256MByte(S70GL02)\r\n");
+			
+			// OLED显示失败
+      OLED_Clear();
+      printfOled(0,1,"Erase Failed!");
+      printfOled(1,1,"Max support:256M");
+      printfOled(7,1,"Press any key");
+      OLED_Refresh();
+			
 			return 98;			
 		}
 	
@@ -1813,6 +2591,14 @@ uint8_t AM29LV320_Chip_Erase(void)
     else
     {
         printf("RY/BY# is 1, 擦除状态进入失败\r\n");
+			
+			  // OLED显示失败
+				OLED_Clear();
+				printfOled(0,1,"Erase Failed!");
+				printfOled(1,1,"RY/BY# not 1");
+				printfOled(7,1,"Press any key");
+				OLED_Refresh();
+			
         return 2; // 进入擦除状态失败
     }
 
@@ -1822,7 +2608,15 @@ uint8_t AM29LV320_Chip_Erase(void)
         // 超时保护
         if (timeout_count > max_timeout)
         {
-            printf("擦除超时! (Count: %lu)\r\n", (unsigned long)timeout_count);
+            printf("擦除超时! (Count: %u)\r\n", timeout_count);
+					
+						// OLED显示失败
+						OLED_Clear();
+						printfOled(0,1,"Erase Failed!");
+					  printfOled(1,1,"TimeOut:%u", timeout_count);
+						printfOled(7,1,"Press any key");
+						OLED_Refresh();
+
             // 复位芯片退出擦除状态
             *(FSMC_NOR_BASE_ADDR + 0x0000) = 0xFFFF;
             HAL_Delay(1);
@@ -1833,6 +2627,13 @@ uint8_t AM29LV320_Chip_Erase(void)
         ry_by_state = HAL_GPIO_ReadPin(RY_BY_PORT, RY_BY_PIN);
         printf("计时:%ds, RY/BY#:%d\r\n", timeout_count, 
                (ry_by_state == GPIO_PIN_SET) ? 1 : 0);
+				
+				// OLED显示过程
+				OLED_Clear();
+				printfOled(0,1,"Erasing:%ds", timeout_count);
+				printfOled(1,1,"RY/BY#:%d", (ry_by_state == GPIO_PIN_SET) ? 1 : 0);
+				OLED_Refresh();
+
 
         // 仅当RY/BY#为高(就绪)时, 读取状态寄存器进行验证
         if (ry_by_state == GPIO_PIN_SET)
@@ -1848,14 +2649,13 @@ uint8_t AM29LV320_Chip_Erase(void)
             // 打印详细状态信息
             printf("擦除状态: Q7=%d, Q6=%d, Q5=%d, RY/BY#=%d\r\n", 
                    q7, q6, q5, (ry_by_state == GPIO_PIN_SET) ? 1 : 0);
+					
+					  
 
             // 擦除完成判断条件
             if (ry_by_state == 1 && q7 == 1 && q6 == 1 && q5 == 1)
             {
                 erase_ok = 1;
-							
-							
-							
                 break; // 擦除完成, 退出循环
             }
             // 异常状态判断
@@ -1874,25 +2674,6 @@ uint8_t AM29LV320_Chip_Erase(void)
         timeout_count++;
     }
 		
-				// 2. 获取擦除结束的RTC时间+日期，并转换为Unix时间戳
-    if (HAL_RTC_GetTime(&hrtc, &erase_end_time, RTC_FORMAT_BIN) != HAL_OK)
-    {
-        printf("获取擦除结束时间失败！\r\n");
-    }
-		else 
-		{
-				HAL_RTC_GetDate(&hrtc, &erase_end_date, RTC_FORMAT_BIN);
-				erase_end_unix = rtc_to_unix_timestamp(&erase_end_date, &erase_end_time);
-				printf("擦除结束时间（Unix时间戳）：%lu 秒\r\n", (unsigned long)erase_end_unix);
-				printf("擦除结束时间（本地）：%04d-%02d-%02d %02d:%02d:%02d\r\n",
-							 2000+erase_end_date.Year, erase_end_date.Month, erase_end_date.Date,
-							 erase_end_time.Hours, erase_end_time.Minutes, erase_end_time.Seconds);
-
-				// 3. 计算擦除耗时（直接相减，无需处理跨时段）
-				erase_total_seconds = erase_end_unix - erase_start_unix;
-				printf("AM29芯片擦除耗时：%lu 秒\r\n", (unsigned long)erase_total_seconds);
-		}
-
 
     /************************** 4. 复位芯片并验证擦除结果 **************************/
     // 复位芯片, 退出状态查询模式
@@ -1936,18 +2717,43 @@ uint8_t AM29LV320_Chip_Erase(void)
 									 (unsigned long)total_check_addr*2,
 									 (unsigned long)chip_total_halfwords*2,
 									 (unsigned long)error_count);
+						// OLED显示过程
+						OLED_Clear();
+						printfOled(0,1,"Blank Check");
+						uint16_t percent_x10 = (total_check_addr * 1000) / chip_total_halfwords;
+						printfOled(1,1,"%d.%d %%", percent_x10/10, percent_x10%10);
+						OLED_Refresh();
 				}
+		}
+		
+		// 2. 获取擦除结束的RTC时间+日期，并转换为Unix时间戳
+    if (HAL_RTC_GetTime(&hrtc, &erase_end_time, RTC_FORMAT_BIN) != HAL_OK)
+    {
+        printf("获取擦除结束时间失败！\r\n");
+    }
+		else 
+		{
+				HAL_RTC_GetDate(&hrtc, &erase_end_date, RTC_FORMAT_BIN);
+				erase_end_unix = rtc_to_unix_timestamp(&erase_end_date, &erase_end_time);
+				printf("擦除结束时间（Unix时间戳）：%lu 秒\r\n", (unsigned long)erase_end_unix);
+				printf("擦除结束时间（本地）：%04d-%02d-%02d %02d:%02d:%02d\r\n",
+							 2000+erase_end_date.Year, erase_end_date.Month, erase_end_date.Date,
+							 erase_end_time.Hours, erase_end_time.Minutes, erase_end_time.Seconds);
+
+				// 3. 计算擦除耗时（直接相减，无需处理跨时段）
+				erase_total_seconds = erase_end_unix - erase_start_unix;
+				printf("AM29芯片擦除耗时：%u 秒\r\n", erase_total_seconds);
 		}
 
 		// 打印最终验证结果
-		printf("全芯片验证完成：共校验%lu个半字 | 非0xFFFF地址数：%lu\r\n",
-					 (unsigned long)total_check_addr, (unsigned long)error_count);
+		printf("全芯片验证完成：共校验%u个半字 | 非0xFFFF地址数：%u\r\n",
+					 total_check_addr, error_count);
 
 		// 根据错误数更新擦除结果标志
 		if (error_count > 0)
 		{
 				erase_ok = 0; // 存在未擦除干净的地址，置为错误
-				printf("擦除验证失败！共检测到%lu个地址未擦除干净\r\n", (unsigned long)error_count);
+				printf("擦除验证失败！共检测到%u个地址未擦除干净\r\n", error_count);
 		}
 		else
 		{
@@ -1958,11 +2764,24 @@ uint8_t AM29LV320_Chip_Erase(void)
     /************************** 5. 返回擦除结果 **************************/
     if (erase_ok)
     {
-        return 0; // 擦除成功
+			// OLED显示
+			OLED_Clear();
+			printfOled(0,1,"Erase Success", timeout_count);
+			printfOled(1,1,"Time:%us", erase_total_seconds);
+			printfOled(7,1,"Press any key");
+			OLED_Refresh();
+      return 0; // 擦除成功
     }
     else
     {
-        return 2; // 状态错误
+			// OLED显示
+			OLED_Clear();
+			printfOled(0,1,"Erase Failed", timeout_count);
+			printfOled(1,1,"Not 0xFFFF Count:");
+			printfOled(2,1,"%u",error_count);
+			printfOled(7,1,"Press any key");
+			OLED_Refresh();
+      return 2; // 状态错误
     }
 }
 
@@ -2131,26 +2950,122 @@ uint8_t AM29LV320_Check_Blank(uint32_t start_addr, uint32_t check_len, uint8_t s
  * @param  ask_user: 是否在发现错误时询问用户
  * @retval uint8_t: 0 - 区域空白 | 1 - 区域非空白 | 2 - 用户取消操作
  */
+/**
+ * @brief  快速检查芯片起始区域（0x00000000~0x000000FF）是否空白
+ * @param  ask_user: 是否在发现错误时询问用户
+ * @retval uint8_t: 0 - 区域空白 | 1 - 区域非空白 | 2 - 用户取消操作
+ */
 uint8_t AM29LV320_Check_Start_Area(uint8_t ask_user)
 {
     uint8_t check_result = AM29LV320_Check_Blank(0x00000000, 0x100, 1);  // 检查256字节
     
     if (check_result != 0 && ask_user)
     {
-        printf("\r\n是否强制继续写入？(输入 Y 继续，其他键取消): ");
+        printf("\r\n警告：芯片起始区域不是空白的！\r\n");
+        printf("是否强制继续写入？(按 Y 键 或 OK键 继续，其他键取消): ");
         
-        // 等待用户确认
-        uint8_t ch = 0;
-        if (HAL_UART_Receive(&huart1, &ch, 1, 50000000) == HAL_OK)
+        // 在OLED上显示警告
+        OLED_Clear();
+        printfOled(0,1,"WARNING!");
+        printfOled(1,1,"Start area");
+        printfOled(2,1,"NOT blank!");
+        printfOled(3,1,"Force continue?");
+        printfOled(4,1,"Press Y or OK");
+        printfOled(5,1,"to continue");
+        printfOled(6,1,"Press others");
+        printfOled(7,1,"to cancel");
+        OLED_Refresh();
+        
+        // 等待用户确认（10秒超时）
+        uint32_t tickstart = HAL_GetTick();
+        uint8_t key = 0;
+        
+        while ((HAL_GetTick() - tickstart) < 10000) // 10秒超时
         {
-            if (ch == 'Y' || ch == 'y')
+            // 检测OK键
+            if (KEY_OK_Detect())
             {
-                printf("\r\n用户选择强制继续写入...\r\n");
+                printf("\r\n用户按OK键确认，强制继续写入...\r\n");
+                
+                // OLED显示确认
+                OLED_Clear();
+                printfOled(0,1,"Confirmed by");
+                printfOled(1,1,"OK key");
+                printfOled(2,1,"Continue...");
+                OLED_Refresh();
+                HAL_Delay(500);
+                
                 return 0;  // 返回0表示用户同意继续
             }
+            
+            // 检测取消键
+            if (KEY_CANCEL_Detect())
+            {
+                printf("\r\n用户按取消键，写入操作已取消\r\n");
+                
+                // OLED显示取消
+                OLED_Clear();
+                printfOled(0,1,"Cancelled by");
+                printfOled(1,1,"CANCEL key");
+                printfOled(7,1,"Press any key");
+                OLED_Refresh();
+                
+                return 2;  // 用户取消
+            }
+            
+            // 检测串口输入（非阻塞）
+            uint8_t ch = 0;
+            if (HAL_UART_Receive(&huart1, &ch, 1, 0) == HAL_OK)
+            {
+                // 回显字符
+                if (ch >= 0x20 && ch <= 0x7E)
+                {
+                    HAL_UART_Transmit(&huart1, &ch, 1, HAL_MAX_DELAY);
+                }
+                
+                if (ch == 'Y' || ch == 'y')
+                {
+                    printf("\r\n用户输入Y确认，强制继续写入...\r\n");
+                    
+                    // OLED显示确认
+                    OLED_Clear();
+                    printfOled(0,1,"Confirmed by");
+                    printfOled(1,1,"'Y' key");
+                    printfOled(2,1,"Continue...");
+                    OLED_Refresh();
+                    HAL_Delay(500);
+                    
+                    return 0;  // 返回0表示用户同意继续
+                }
+                else
+                {
+                    printf("\r\n用户输入其他字符，写入操作已取消\r\n");
+                    
+                    // OLED显示取消
+                    OLED_Clear();
+                    printfOled(0,1,"Cancelled by");
+                    printfOled(1,1,"other key");
+                    printfOled(7,1,"Press any key");
+                    OLED_Refresh();
+                    
+                    return 2;  // 用户取消
+                }
+            }
+            
+            HAL_Delay(20);
         }
         
-        printf("\r\n写入操作已取消\r\n");
+        // 超时处理
+        printf("\r\n等待超时，写入操作已取消\r\n");
+        
+        // OLED显示超时
+        OLED_Clear();
+        printfOled(0,1,"Timeout");
+        printfOled(1,1,"Operation");
+        printfOled(2,1,"Cancelled");
+        printfOled(7,1,"Press any key");
+        OLED_Refresh();
+        
         return 2;  // 用户取消
     }
     
@@ -2186,10 +3101,22 @@ uint8_t AM29LV320_Write_Data_From_File(const char *filename)
 		if(cap==0)
 		{
 			printf("获取容量失败\r\n");
+			//显示
+			OLED_Clear();
+			printfOled(0,1,"Get size failed.");
+			printfOled(7,1,"Press any key");
+			OLED_Refresh();
+
 			return 99;
 		}
 		else if(cap >0x1C)
 		{
+			//显示
+			OLED_Clear();
+			printfOled(0,1,"Max Support:256M");
+			printfOled(7,1,"Press any key");
+			OLED_Refresh();
+
 			printf("最大只支持S70GL02\r\n");
 			return 98;
 		}
@@ -2214,6 +3141,12 @@ uint8_t AM29LV320_Write_Data_From_File(const char *filename)
     if (filename == NULL || strlen(filename) == 0)
     {
         printf("写入失败：文件名参数为空\r\n");
+  			//显示
+				OLED_Clear();
+				printfOled(0,1,"Max Support:256M");
+				printfOled(7,1,"Press any key");
+				OLED_Refresh();
+
         return 1;
     }
     sprintf(file_path, "0:/AM29/%s", filename); // 拼接完整文件路径
@@ -2223,6 +3156,11 @@ uint8_t AM29LV320_Write_Data_From_File(const char *filename)
     if (res != FR_OK)
     {
         printf("写入失败：TF卡挂载失败，错误码：%d\r\n", res);
+  			//显示
+				OLED_Clear();
+				printfOled(0,1,"TF NOT present");
+				printfOled(7,1,"Press any key");
+				OLED_Refresh();
         return 2;
     }
 
@@ -2231,25 +3169,55 @@ uint8_t AM29LV320_Write_Data_From_File(const char *filename)
     if (res != FR_OK)
     {
         printf("写入失败：打开文件%s失败，错误码：%d\r\n", filename, res);
+			
+			  //显示
+				OLED_Clear();
+				printfOled(0,1,"Fail to open");
+				printfOled(1,1,"%s", filename);
+			  printfOled(2,1,"code: %d", res);
+				printfOled(7,1,"Press any key");
+				OLED_Refresh();
+
+			
         f_mount(NULL, vol, 1);
         return 3;
     }
 
     // 4. 获取文件大小并校验
     file_size = f_size(&file);
-    printf("打开文件成功：%s | 大小：%lu 字节\r\n", filename, (unsigned long)file_size);
+    printf("打开文件成功：%s | 大小：%u 字节\r\n", filename, file_size);
     if (file_size > AM29_MAX_CAPACITY)
     {
-        printf("写入失败：文件大小(%lu字节)超过芯片最大容量(%lu字节)\r\n",
-               (unsigned long)file_size, (unsigned long)AM29_MAX_CAPACITY);
+        printf("写入失败：文件大小(%u字节)超过芯片最大容量(%u字节)\r\n",
+               file_size, AM29_MAX_CAPACITY);
+
+  			//显示
+				OLED_Clear();
+				printfOled(0,1,"File over size");
+			  printfOled(1,1,"Chip size:");
+			  printfOled(2,1,"%d KB", AM29_MAX_CAPACITY/1024);
+			  printfOled(3,1,"File size:");
+			  printfOled(4,1,"%d KB", file_size/1024);
+				printfOled(7,1,"Press any key");
+				OLED_Refresh();
+
         f_close(&file);
         f_mount(NULL, vol, 1);
         return 4;
     }
+		
     if (file_size == 0)
     {
+			
         printf("写入失败：文件为空\r\n");
-        f_close(&file);
+
+			  //显示
+				OLED_Clear();
+				printfOled(0,1,"File Size 0Byte");
+				printfOled(7,1,"Press any key");
+				OLED_Refresh();
+
+   			f_close(&file);
         f_mount(NULL, vol, 1);
         return 1;
     }
@@ -2269,7 +3237,13 @@ uint8_t AM29LV320_Write_Data_From_File(const char *filename)
     if (HAL_RTC_GetTime(&hrtc, &erase_start_time, RTC_FORMAT_BIN) != HAL_OK)
     {
         printf("获取写入开始时间失败！\r\n");
-        return 5;
+			  //显示
+				OLED_Clear();
+				printfOled(0,1,"Get RTC Failed");
+				printfOled(7,1,"Press any key");
+				OLED_Refresh();
+
+				return 5;
     }
     HAL_RTC_GetDate(&hrtc, &erase_start_date, RTC_FORMAT_BIN); // 必须调用GetDate
     erase_start_unix = rtc_to_unix_timestamp(&erase_start_date, &erase_start_time);
@@ -2377,36 +3351,23 @@ uint8_t AM29LV320_Write_Data_From_File(const char *filename)
 						}
 
 						// 打印（新增已用时/预计耗时）
-						printf("写入进度：%lu/%lu 字节 (%.1f%%) | 已用时：%lu 秒 | 预计总耗时：%.1f 秒\r\n",
+						printf("写入进度：%lu/%lu 字节 (%.1f%%) | 已用时：%u 秒 | 预计总耗时：%.1f 秒\r\n",
 									 (unsigned long)written_bytes, (unsigned long)file_size,
 									 (float)written_bytes / file_size * 100,
-									 (unsigned long)elapsed_sec, total_est_sec);
-						
+									 elapsed_sec, total_est_sec);
+
+						//显示
+						OLED_Clear();
+						printfOled(0,1,"Writing: %.1f%%", (float)written_bytes / file_size * 100);
+						printfOled(1,1,"Use: %uS",elapsed_sec);
+						printfOled(2,1,"Est: %.1fS", total_est_sec);
+						OLED_Refresh();
+									 
+									 
 						//LED闪耀提示
 						HAL_GPIO_TogglePin(LEDG_PORT, LEDG_PIN);
 				}
     }
-
-				//显示时间
-				if (HAL_RTC_GetTime(&hrtc, &erase_end_time, RTC_FORMAT_BIN) != HAL_OK)
-    {
-        printf("获取写入结束时间失败！\r\n");
-        
-    }
-		else 
-		{
-				HAL_RTC_GetDate(&hrtc, &erase_end_date, RTC_FORMAT_BIN);
-				erase_end_unix = rtc_to_unix_timestamp(&erase_end_date, &erase_end_time);
-				printf("写入结束时间（Unix时间戳）：%lu 秒\r\n", (unsigned long)erase_end_unix);
-				printf("写入结束时间（本地）：%04d-%02d-%02d %02d:%02d:%02d\r\n",
-							 2000+erase_end_date.Year, erase_end_date.Month, erase_end_date.Date,
-							 erase_end_time.Hours, erase_end_time.Minutes, erase_end_time.Seconds);
-
-				// 3. 计算写入耗时（直接相减，无需处理跨时段）
-				erase_total_seconds = erase_end_unix - erase_start_unix;
-				printf("AM29芯片写入耗时：%lu 秒\r\n", (unsigned long)erase_total_seconds);
-		}
-
 
 		// 8. 全量逐Word对比验证（8192字节分块读取优化）
 		if (write_ret == 0)
@@ -2472,6 +3433,14 @@ uint8_t AM29LV320_Write_Data_From_File(const char *filename)
 														(unsigned long)total_verify_words, 
 														(unsigned long)((file_size + 1) / 2), // 总Word数（向上取整）
 														(unsigned long)error_count);
+														
+										//显示
+										OLED_Clear();
+										uint16_t percent_x10 = (total_verify_words * 1000) / ((file_size + 1) / 2);
+										printfOled(0,1,"Verifing: ");
+										printfOled(1,1,"%d.%d %%", percent_x10/10, percent_x10%10);
+										OLED_Refresh();
+
 								}
 
 								// 8.3.6 全局地址偏移递增（按字节）
@@ -2502,17 +3471,63 @@ uint8_t AM29LV320_Write_Data_From_File(const char *filename)
     // 10. 结果反馈
 		if (write_ret == 0)
 		{
-				printf("文件%s写入芯片成功！总写入字节：%lu\r\n", filename, (unsigned long)written_bytes);
+			  //显示时间
+				if (HAL_RTC_GetTime(&hrtc, &erase_end_time, RTC_FORMAT_BIN) != HAL_OK)
+				{
+						printf("获取写入结束时间失败！\r\n");						
+				}
+				else 
+				{
+						HAL_RTC_GetDate(&hrtc, &erase_end_date, RTC_FORMAT_BIN);
+						erase_end_unix = rtc_to_unix_timestamp(&erase_end_date, &erase_end_time);
+						printf("写入结束时间（Unix时间戳）：%lu 秒\r\n", (unsigned long)erase_end_unix);
+						printf("写入结束时间（本地）：%04d-%02d-%02d %02d:%02d:%02d\r\n",
+									 2000+erase_end_date.Year, erase_end_date.Month, erase_end_date.Date,
+									 erase_end_time.Hours, erase_end_time.Minutes, erase_end_time.Seconds);
+
+						// 3. 计算写入耗时（直接相减，无需处理跨时段）
+						erase_total_seconds = erase_end_unix - erase_start_unix;
+						printf("AM29芯片写入耗时：%u 秒\r\n", erase_total_seconds);
+				}
+
+
+				printf("文件%s写入芯片成功！总写入字节：%u\r\n", filename, written_bytes);
+				
+				//显示
+				OLED_Clear();
+				printfOled(0,1,"Write Success");
+				printfOled(1,1,"Use: %uS",erase_total_seconds);
+				printfOled(2,1,"Size: %uKB", written_bytes/1024);
+				printfOled(7,1,"Press any key");
+				OLED_Refresh();
+				
 				return 0;
 		}
 		else if (write_ret == 6)
 		{
-				printf("文件%s写入芯片失败！验证发现 %lu 个Word数据不一致\r\n", filename, (unsigned long)error_count);
+				printf("文件%s写入芯片失败！验证发现 %u 个Word数据不一致\r\n", filename, error_count);
+
+				//显示
+				OLED_Clear();
+				printfOled(0,1,"Verify Failed");
+				printfOled(1,1,"File: %s",filename);
+				printfOled(2,1,"ErrorCout: %u");
+				printfOled(3,1,"%u", error_count);
+				printfOled(7,1,"Press any key");
+				OLED_Refresh();
 				return write_ret;
 		}
 		else
 		{
 				printf("文件%s写入芯片失败！\r\n", filename);
+				//显示
+				OLED_Clear();
+				printfOled(0,1,"Write Failed");
+				printfOled(1,1,"File: %s",filename);
+				printfOled(2,1,"ErrorCode: %u", write_ret);
+				printfOled(7,1,"Press any key");
+				OLED_Refresh();
+
 				return write_ret;
 		}
 }
@@ -2580,7 +3595,7 @@ void delaycmd(void)
 		
 }
 
-// 遍历AM29目录下所有.bin文件并返回列表（保留原有可运行的TF卡逻辑）
+// 遍历AM29目录下所有.bin文件并返回列表（排除包含中文字符的文件名）
 AM29_File_Info_t* AM29_List_Bin_Files(uint8_t *file_count)
 {
     FRESULT res;                  
@@ -2609,39 +3624,35 @@ AM29_File_Info_t* AM29_List_Bin_Files(uint8_t *file_count)
     }
     printf("TF卡挂载成功！\r\n");
 
-    // 暂时注释目录创建（改前可能没有这步）
-    // res = f_mkdir(path);
-    // if(res != FR_OK && res != FR_EXIST) { ... }
+    res = f_opendir(&dir, path);
+    if(res != FR_OK)
+    {
+        printf("打开AM29目录失败! 错误码: %d，尝试创建目录...\r\n", res);
+        
+        // 尝试创建AM29目录
+        res = f_mkdir(path);
+        if(res == FR_OK)
+        {
+            printf("AM29目录创建成功，重新打开目录...\r\n");
+            
+            // 重新打开目录
+            res = f_opendir(&dir, path);
+            if(res != FR_OK)
+            {
+                printf("重新打开AM29目录失败! 错误码: %d\r\n", res);
+                f_mount(NULL, vol, 1); 
+                return NULL;
+            }
+        }
+        else
+        {
+            printf("创建AM29目录失败! 错误码: %d\r\n", res);
+            f_mount(NULL, vol, 1); 
+            return NULL;
+        }
+    }
 
-		res = f_opendir(&dir, path);
-		if(res != FR_OK)
-		{
-				printf("打开AM29目录失败! 错误码: %d，尝试创建目录...\r\n", res);
-				
-				// 尝试创建AM29目录
-				res = f_mkdir(path);
-				if(res == FR_OK)
-				{
-						printf("AM29目录创建成功，重新打开目录...\r\n");
-						
-						// 重新打开目录
-						res = f_opendir(&dir, path);
-						if(res != FR_OK)
-						{
-								printf("重新打开AM29目录失败! 错误码: %d\r\n", res);
-								f_mount(NULL, vol, 1); 
-								return NULL;
-						}
-				}
-				else
-				{
-						printf("创建AM29目录失败! 错误码: %d\r\n", res);
-						f_mount(NULL, vol, 1); 
-						return NULL;
-				}
-		}
-
-    printf("===== AM29目录下的.bin文件列表 =====\r\n");
+    printf("===== AM29目录下的.bin文件列表（排除中文文件名） =====\r\n");
     while(1)
     {
         if(g_am29_bin_file_count >= MAX_BIN_FILE_CNT) break;
@@ -2651,17 +3662,40 @@ AM29_File_Info_t* AM29_List_Bin_Files(uint8_t *file_count)
 
         if((fno.fattrib & AM_DIR) == 0) 
         {
-            // 暂时简化后缀判断（改前可能更简单）
+            // 检查是否为.bin文件
             char* suffix = strrchr(fno.fname, '.');
             if(suffix && (strcmp(suffix, ".bin")==0 || strcmp(suffix, ".BIN")==0))
             {
-                strncpy(g_am29_bin_files[g_am29_bin_file_count].filename, 
-                        fno.fname, sizeof(g_am29_bin_files[g_am29_bin_file_count].filename)-1);
-                g_am29_bin_files[g_am29_bin_file_count].filesize = fno.fsize;
-                printf("文件: %s | 大小: %lu 字节\r\n", 
-                       g_am29_bin_files[g_am29_bin_file_count].filename,
-                       (unsigned long)g_am29_bin_files[g_am29_bin_file_count].filesize);
-                g_am29_bin_file_count++;
+                // 检查文件名是否包含中文字符（ASCII > 0x7F）
+                uint8_t has_chinese = 0;
+                uint8_t name_len = strlen(fno.fname);
+                
+                for(uint8_t i = 0; i < name_len; i++)
+                {
+                    // 如果字符的ASCII码大于0x7F，说明可能是中文字符的一部分
+                    if((uint8_t)fno.fname[i] > 0x7F)
+                    {
+                        has_chinese = 1;
+                        break;
+                    }
+                }
+                
+                // 只处理不包含中文的文件名
+                if(!has_chinese)
+                {
+                    strncpy(g_am29_bin_files[g_am29_bin_file_count].filename, 
+                            fno.fname, sizeof(g_am29_bin_files[g_am29_bin_file_count].filename)-1);
+                    g_am29_bin_files[g_am29_bin_file_count].filesize = fno.fsize;
+                    printf("文件: %s | 大小: %lu 字节\r\n", 
+                           g_am29_bin_files[g_am29_bin_file_count].filename,
+                           (unsigned long)g_am29_bin_files[g_am29_bin_file_count].filesize);
+                    g_am29_bin_file_count++;
+                }
+                else
+                {
+                    // 可选：打印被排除的中文文件名（用于调试）
+                    printf("排除中文文件名: %s\r\n", fno.fname);
+                }
             }
         }
     }
@@ -2672,11 +3706,11 @@ AM29_File_Info_t* AM29_List_Bin_Files(uint8_t *file_count)
     *file_count = g_am29_bin_file_count;
     if(g_am29_bin_file_count == 0)
     {
-        printf("AM29目录下未找到.bin文件\r\n");
+        printf("AM29目录下未找到有效的.bin文件（无中文文件名）\r\n");
     }
     else
     {
-        printf("===== 共找到 %d 个.bin文件 =====\r\n", g_am29_bin_file_count);
+        printf("===== 共找到 %d 个有效的.bin文件（已排除中文文件名） =====\r\n", g_am29_bin_file_count);
     }
 
     return g_am29_bin_files;

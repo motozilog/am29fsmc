@@ -2,6 +2,8 @@
 #include "stdlib.h"
 #include "oledfont.h"  	 
 #include "stm32f1xx_hal.h"
+#include <stdio.h>
+#include <stdarg.h>
 
 uint8_t OLED_GRAM[144][8];
 
@@ -302,6 +304,40 @@ void OLED_ShowString(uint8_t x,uint8_t y,uint8_t *chr,uint8_t size1,uint8_t mode
   }
 }
 
+void OLED_ShowString2(uint8_t y,uint8_t *chr,uint8_t mode)
+{
+	 OLED_ShowString(0,y*8,chr,8,mode);
+}
+
+// printf风格的OLED显示函数
+// line: 行号(0-7)
+// format: 格式化字符串，支持printf的所有格式
+// ...: 可变参数
+void printfOled(uint8_t line, uint8_t mode, const char *format, ...)
+{
+    char buffer[128];
+    va_list args;
+    
+    if(line > 7) line = 7;
+    if(format == NULL) return;
+    
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    
+    // 清除指定行
+    for(uint8_t i = 0; i < 128; i++)
+    {
+        OLED_GRAM[i][line] = 0;
+    }
+    
+    // 显示字符串（使用传入的mode参数）
+    OLED_ShowString2(line, buffer, mode);
+    
+    //OLED_Refresh();
+}
+
+
 //m^n
 uint32_t OLED_Pow(uint8_t m,uint8_t n)
 {
@@ -500,3 +536,53 @@ void OLED_Init(void)
 	OLED_WR_Byte(0xAF,OLED_CMD);
 }
 
+// 在oled.c末尾添加以下函数
+
+// 菜单项反色显示函数
+// line: 行号(0-7)
+// mode: 0-正常显示，1-反色显示
+void OLED_MenuItemReverse(uint8_t line, uint8_t mode)
+{
+    uint8_t i;
+    // 菜单项起始Y坐标（每行8像素）
+    uint8_t y_start = line * 8;
+    
+    if(mode == 1) // 反色显示
+    {
+        // 将整行8像素高度，128列全部取反
+        for(i=0; i<128; i++)
+        {
+            OLED_GRAM[i][line] = ~OLED_GRAM[i][line];
+        }
+    }
+    OLED_Refresh();
+}
+
+// 清除指定行的菜单项反色
+void OLED_MenuItemClearReverse(uint8_t line)
+{
+    // 重新显示该行原来的内容
+    // 这里简单地整行反色两次即可恢复
+    OLED_MenuItemReverse(line, 1);
+}
+
+// 显示菜单项（带反色选项）
+// current_line: 当前选中的行
+void OLED_ShowMenu(uint8_t current_line)
+{
+    OLED_Clear();
+    
+    OLED_ShowString2(0,"AM29 FSMC Programmer",1);
+    OLED_ShowString2(1,"  By motozilog V1.0",1);
+    OLED_ShowString2(2,"  ",1);
+    OLED_ShowString2(3,"1-Get AM29 ID",1);
+    OLED_ShowString2(4,"2-Erase & Blank Check",1);
+    OLED_ShowString2(5,"3-Write To Chip",1);
+    OLED_ShowString2(6,"4-Read To TF Card",1);
+    OLED_ShowString2(7,"5-Switch To UDisk",1);
+    
+    // 反色显示当前选中的行
+    OLED_MenuItemReverse(current_line, 1);
+    
+    OLED_Refresh();
+}

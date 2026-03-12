@@ -53,3 +53,5 @@ am29-zet6\main.o: ../USB_DEVICE/Target/usbd_conf.h
 am29-zet6\main.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdio.h
 am29-zet6\main.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdlib.h
 am29-zet6\main.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\string.h
+am29-zet6\main.o: ../Core/Inc/oled.h
+am29-zet6\main.o: ../Core/Inc/bmp.h
