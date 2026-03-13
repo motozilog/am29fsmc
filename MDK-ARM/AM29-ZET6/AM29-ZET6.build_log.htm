@@ -28,35 +28,39 @@ Project File Date:  03/10/2026
 *** Using Compiler 'V5.06 update 7 (build 960)', folder: 'C:\Keil_v5\ARM\ARMCC\Bin'
 Build target 'AM29-ZET6'
 compiling main.c...
-../Core/Src/main.c(857): warning:  #177-D: variable "last_menu_line"  was declared but never referenced
+../Core/Src/main.c(950): warning:  #177-D: variable "last_menu_line"  was declared but never referenced
       static uint8_t last_menu_line = 3;
-../Core/Src/main.c(1055): warning:  #177-D: variable "dummy"  was declared but never referenced
+../Core/Src/main.c(1148): warning:  #177-D: variable "dummy"  was declared but never referenced
       uint8_t dummy;
-../Core/Src/main.c(1057): warning:  #177-D: variable "status"  was declared but never referenced
+../Core/Src/main.c(1150): warning:  #177-D: variable "status"  was declared but never referenced
       USBD_StatusTypeDef status;
-../Core/Src/main.c(1402): warning:  #177-D: variable "file_size"  was declared but never referenced
+../Core/Src/main.c(1497): warning:  #177-D: variable "file_size"  was declared but never referenced
       uint32_t file_size = 0;
-../Core/Src/main.c(1722): warning:  #177-D: variable "confirm"  was declared but never referenced
+../Core/Src/main.c(1517): warning:  #550-D: variable "block_end_addr"  was set but never used
+      uint32_t block_end_addr = BLOCK_64MB;           // 当前块的结束地址
+../Core/Src/main.c(1801): warning:  #177-D: variable "confirm"  was declared but never referenced
       uint8_t confirm = 0;
-../Core/Src/main.c(1803): warning:  #177-D: variable "user_choice"  was declared but never referenced
+../Core/Src/main.c(1882): warning:  #177-D: variable "user_choice"  was declared but never referenced
       uint8_t user_choice = 0;
-../Core/Src/main.c(1808): warning:  #550-D: variable "last_selection"  was set but never used
+../Core/Src/main.c(1887): warning:  #550-D: variable "last_selection"  was set but never used
       uint8_t last_selection = 0;      // 上一次选中的行，用于恢复反色
-../Core/Src/main.c(2509): warning:  #550-D: variable "q6_prev"  was set but never used
+../Core/Src/main.c(2595): warning:  #550-D: variable "q6_prev"  was set but never used
       uint8_t q6_prev = 0;
-../Core/Src/main.c(2824): warning:  #550-D: variable "first_error_halfword"  was set but never used
+../Core/Src/main.c(2657): warning:  #177-D: variable "block_end_halfword"  was declared but never referenced
+  	uint32_t block_end_halfword = BLOCK_64MB >> 1;  // 每块64MB对应的半字数
+../Core/Src/main.c(2969): warning:  #550-D: variable "first_error_halfword"  was set but never used
       uint32_t first_error_halfword = 0;
-../Core/Src/main.c(2981): warning:  #177-D: variable "key"  was declared but never referenced
+../Core/Src/main.c(3126): warning:  #177-D: variable "key"  was declared but never referenced
           uint8_t key = 0;
-../Core/Src/main.c(98): warning:  #550-D: variable "g_tick_step_us"  was set but never used
+../Core/Src/main.c(101): warning:  #550-D: variable "g_tick_step_us"  was set but never used
   static uint32_t g_tick_step_us = 0;   // Tick递增步长（us，仅作为备用参数）
-../Core/Src/main.c(1254): warning:  #177-D: function "UART_Read_User_Input"  was declared but never referenced
+../Core/Src/main.c(1347): warning:  #177-D: function "UART_Read_User_Input"  was declared but never referenced
   static uint8_t UART_Read_User_Input(void)
-../Core/Src/main.c: 12 warnings, 0 errors
+../Core/Src/main.c: 14 warnings, 0 errors
 linking...
-Program Size: Code=55762 RO-data=8934 RW-data=360 ZI-data=32104  
+Program Size: Code=56362 RO-data=9010 RW-data=360 ZI-data=32104  
 FromELF: creating hex file...
-"AM29-ZET6\AM29-ZET6.axf" - 0 Error(s), 12 Warning(s).
+"AM29-ZET6\AM29-ZET6.axf" - 0 Error(s), 14 Warning(s).
 
 <h2>Software Packages used:</h2>
 

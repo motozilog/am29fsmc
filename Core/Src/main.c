@@ -66,6 +66,9 @@ RTC_HandleTypeDef hrtc;
 #define LEDR_PIN          LED_R_Pin
 #define LEDR_PORT         GPIOB
 
+// 蜂鸣器定义（PC6）
+#define BUZZER_PIN          GPIO_PIN_6
+#define BUZZER_PORT         GPIOC
 
 // ********** AM29LV320 FSMC 配置 **********
 #define FSMC_NOR_BASE_ADDR    ((uint16_t *)0x60000000)  // FSMC BANK1基地址(半字访问，AM29LV320为16位宽)
@@ -77,7 +80,7 @@ uint16_t am29lv320_dev_id = 0;    // 设备ID
 uint16_t am29lv320_cap_id = 0;    // 容量ID
 
 // 新增：AM29LV320数据读取相关定义
-#define AM29LV320_RESET_CMD   0xFFFF                    // 复位指令（退出ID模式）
+#define AM29LV320_RESET_CMD   0x00F0                    // 复位指令
 #define AM29LV320_ADDR_0x0000 0x0000                    // 0x0000字节地址对应的半字偏移
 
 // 新增：AM29LV320 CFI容量读取相关定义
@@ -161,6 +164,7 @@ uint8_t KEY_CANCEL_Detect(void);
 static uint8_t Get_Any_Key(void);
 static uint8_t Get_User_Input(void);
 
+void delay_us(uint32_t us);
 
 uint32_t AM29LV320_Read_ID(void);  // 读取AM29的ID
 
@@ -173,11 +177,13 @@ uint16_t AM29LV320_Read_0x0000(void); // 快速读取0x0000地址内容
 uint16_t AM29LV320_Read_CFI_Capacity(void); // 读取CFI容量原始值
 uint32_t AM29LV320_Parse_CFI_Capacity(uint16_t cfi_value); // 解析CFI容量值为实际字节数
 
-//读取到文件
-uint8_t AM29Read_To_File(void);
 
+uint8_t AM29Read_To_File(void); //读取到文件
+uint8_t AM29LV320_Chip_Erase(void); // 整芯片擦除
 
-uint8_t AM29LV320_Chip_Erase(void); // 整芯片擦除函数声明
+static void Set_A26_A31(uint32_t byte_address); //设置A26~A31
+static void Set_A26_A31_All_Zero(void);	//A26~A31置0
+
 
 uint32_t rtc_to_unix_timestamp(RTC_DateTypeDef *date, RTC_TimeTypeDef *time);
 
@@ -242,7 +248,6 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_FSMC_Init();
   MX_I2C1_Init();
   MX_SDIO_SD_Init();
   MX_SPI1_Init();
@@ -282,10 +287,13 @@ int main(void)
   OLED_Clear();
 	//SSD1306 END
 
+  MX_FSMC_Init();
+
+
 	/* TF START */
 	// 初始化后检测TF卡状态
 	printf("SDIO状态：%d\r\n", HAL_SD_GetState(&hsd));
-
+	
 	// 读取真实卡信息
 	if(HAL_SD_GetCardInfo(&hsd, &card_info) == HAL_OK)
 	{
@@ -347,9 +355,37 @@ int main(void)
 				}
 	}
 	/* TF END */
+	
 
   // 启动时通过USART1发送hello（波特率115200）
   printf("AM29 Programmer By motozilog V1.0\r\n");
+
+	
+	//	printf("蜂鸣器响3秒...START\r\n");
+
+//	// 4000Hz 蜂鸣器控制 START
+//	// 周期 = 250us，半周期 = 125us
+//	const uint32_t half_period_us = 125;  // 125微秒
+//	const uint32_t beep_duration_ms = 30000;  // 3秒
+//	uint32_t start_time = HAL_GetTick();
+
+//	while((HAL_GetTick() - start_time) < beep_duration_ms)
+//	{
+//			// 输出高电平（假设高电平驱动蜂鸣器）
+//			HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, GPIO_PIN_SET);
+//			delay_us(half_period_us);  // 125us延时
+//			
+//			// 输出低电平
+//			HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, GPIO_PIN_RESET);
+//			delay_us(half_period_us);  // 125us延时
+//	}
+
+//	// 确保蜂鸣器关闭
+//	HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, GPIO_PIN_RESET);
+
+//	printf("蜂鸣器响3秒...END\r\n");
+
+
 
   /* USER CODE END 2 */
 
@@ -667,6 +703,14 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(A26_GPIO_Port, &GPIO_InitStruct);
+	
+	  // ===== 添加蜂鸣器引脚配置 =====
+  // 配置PC6为输出推挽
+  GPIO_InitStruct.Pin = BUZZER_PIN;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(BUZZER_PORT, &GPIO_InitStruct);
 
 }
 
@@ -716,7 +760,17 @@ static void MX_FSMC_Init(void)
 
   if (HAL_NOR_Init(&hnor1, &Timing, NULL) != HAL_OK)
   {
-    Error_Handler( );
+    //Error_Handler( );
+		printf("没有检测到AM29系列芯片\r\n");
+		
+		//显示
+		OLED_Clear();
+		printfOled(0,1,"NO AM29 found");
+		printfOled(1,1,"Power off");
+		printfOled(2,1,"And check");
+		OLED_Refresh();
+
+	  while(1) {}
   }
 
   /** Perform the NAND2 memory initialization sequence
@@ -765,6 +819,45 @@ static void MX_FSMC_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+/**
+ * @brief  根据字节地址设置A26~A31引脚状态
+ * @param  byte_address: 字节地址
+ * @retval None
+ */
+static void Set_A26_A31(uint32_t byte_address)
+{
+    static uint8_t last_a26_a31 = 0xFF;  // 静态变量保存上次状态
+    uint8_t new_a26_a31 = (byte_address >> 26) & 0x3F;
+    
+    if (new_a26_a31 != last_a26_a31)
+    {
+        HAL_GPIO_WritePin(A26_GPIO_Port, A26_Pin, (new_a26_a31 & 0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(GPIOB, A27_Pin, (new_a26_a31 & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(GPIOB, A28_Pin, (new_a26_a31 & 0x04) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(GPIOB, A29_Pin, (new_a26_a31 & 0x08) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(GPIOB, A30_Pin, (new_a26_a31 & 0x10) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(GPIOB, A31_Pin, (new_a26_a31 & 0x20) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+        
+        delaycmd();  // 确保地址稳定
+        last_a26_a31 = new_a26_a31;
+    }
+}
+
+/**
+ * @brief  将A26~A31全部置0
+ * @retval None
+ */
+static void Set_A26_A31_All_Zero(void)
+{
+    HAL_GPIO_WritePin(A26_GPIO_Port, A26_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, A27_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, A28_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, A29_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, A30_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, A31_Pin, GPIO_PIN_RESET);
+    delaycmd();  // 确保引脚状态稳定
+}
 
 uint8_t KEY_UP_Detect(void)
 {
@@ -1335,6 +1428,11 @@ static void AM29_Get_Id_And_Read10(void)
 {
 	  uint32_t am29lv320_id_32bit = 0;
 
+		//读取0x0000开始的多个数据（示例读取前5个半字）
+    uint16_t data_buf[6] = {0};
+    AM29LV320_Read_Data(0, 6, data_buf);
+
+	
 		// 读取AM29LV320 ID
 		am29lv320_id_32bit = AM29LV320_Read_ID();
 		printf("AM29 ID: 0x%08X\r\n", am29lv320_id_32bit);
@@ -1354,10 +1452,7 @@ static void AM29_Get_Id_And_Read10(void)
 				printf("获取AM29容量错误\r\n");
 		}
 		
-		
-		//读取0x0000开始的多个数据（示例读取前5个半字）
-    uint16_t data_buf[6] = {0};
-    AM29LV320_Read_Data(0, 6, data_buf);
+		//显示前12byte
     printf("0x00~0x0B Data: ");
     for(int i=0; i<6; i++)
     {
@@ -1415,6 +1510,13 @@ uint8_t AM29Read_To_File(void)
     RTC_TimeTypeDef read_end_time = {0};
     RTC_DateTypeDef read_end_date = {0};
     
+    // ===== 新增：64MB分块相关变量 =====
+    const uint32_t BLOCK_64MB = 64 * 1024 * 1024;  // 64MB
+    uint32_t current_block = 0;                     // 当前块号（0~3）
+    uint32_t block_start_addr = 0;                  // 当前块的起始地址
+    uint32_t block_end_addr = BLOCK_64MB;           // 当前块的结束地址
+    uint32_t bytes_in_block = 0;                     // 当前块已读取字节数
+    
     printf("\r\n===== 开始读取AM29芯片内容到TF卡 =====\r\n");
     
     // 1. 获取AM29容量
@@ -1422,28 +1524,22 @@ uint8_t AM29Read_To_File(void)
     if(cap == 0)
     {
         printf("获取AM29容量失败！\r\n");
-			
-			// OLED显示失败
-      OLED_Clear();
-      printfOled(0,1,"Read Failed!");
-      printfOled(1,1,"Get CFI Cap Fail");
-      printfOled(7,1,"Press any key");
-      OLED_Refresh();
-
-			return 99;
+        OLED_Clear();
+        printfOled(0,1,"Read Failed!");
+        printfOled(1,1,"Get CFI Cap Fail");
+        printfOled(7,1,"Press any key");
+        OLED_Refresh();
+        return 99;
     }
     else if(cap > 0x1C)
     {
-      printf("最大只支持S70GL02 256M\r\n");
-
-			// OLED显示失败
-      OLED_Clear();
-      printfOled(0,1,"Read Failed!");
-      printfOled(1,1,"Max support:256M");
-      printfOled(7,1,"Press any key");
-      OLED_Refresh();
-
-      return 98;
+        printf("最大只支持S70GL02 256M\r\n");
+        OLED_Clear();
+        printfOled(0,1,"Read Failed!");
+        printfOled(1,1,"Max support:256M");
+        printfOled(7,1,"Press any key");
+        OLED_Refresh();
+        return 98;
     }
     
     AM29_CAPACITY = AM29LV320_Parse_CFI_Capacity(cap);
@@ -1457,13 +1553,11 @@ uint8_t AM29Read_To_File(void)
     if(res != FR_OK)
     {
         printf("TF卡挂载失败! 错误码: %d\r\n", res);
-
-			// OLED显示失败
-      OLED_Clear();
-      printfOled(0,1,"Read Failed!");
-      printfOled(1,1,"TF NOT Found");
-      printfOled(7,1,"Press any key");
-      OLED_Refresh();
+        OLED_Clear();
+        printfOled(0,1,"Read Failed!");
+        printfOled(1,1,"TF NOT Found");
+        printfOled(7,1,"Press any key");
+        OLED_Refresh();
         return 2;
     }
     
@@ -1480,16 +1574,13 @@ uint8_t AM29Read_To_File(void)
         else
         {
             printf("创建AM29R目录失败! 错误码: %d\r\n", res);
-
-					// OLED显示失败
-      OLED_Clear();
-      printfOled(0,1,"Read Failed!");
-      printfOled(1,1,"Create AM29R Dir");
-      printfOled(2,1,"Failed!");
-      printfOled(7,1,"Press any key");
-      OLED_Refresh();
-
-					f_mount(NULL, vol, 1);
+            OLED_Clear();
+            printfOled(0,1,"Read Failed!");
+            printfOled(1,1,"Create AM29R Dir");
+            printfOled(2,1,"Failed!");
+            printfOled(7,1,"Press any key");
+            OLED_Refresh();
+            f_mount(NULL, vol, 1);
             return 3;
         }
     }
@@ -1499,86 +1590,55 @@ uint8_t AM29Read_To_File(void)
         printf("AM29R目录已存在\r\n");
     }
     
-		// 4. 查找下一个可用的文件名编号（最大编号+1）
-		printf("扫描AM29R目录中的文件...\r\n");
-		res = f_opendir(&dir, path);
-		if(res == FR_OK)
-		{
-				uint32_t max_num = 0;  // 记录最大编号，从0开始
-				
-				while(1)
-				{
-						res = f_readdir(&dir, &fno);
-						if(res != FR_OK || fno.fname[0] == 0) break;
-						
-						// 只处理文件，忽略目录
-						if((fno.fattrib & AM_DIR) == 0)
-						{
-								// 打印原始文件名（用于调试）
-								printf("发现文件: \"%s\" (长度:%d)\r\n", fno.fname, strlen(fno.fname));
-								
-								// 获取文件名长度
-								uint8_t name_len = strlen(fno.fname);
-								
-								// 检查是否符合8.3格式：8位数字 + .bin（总长度12字符）
-								if(name_len == 12)
-								{
-										// 检查扩展名是否为.bin（不区分大小写）
-										char* suffix = strrchr(fno.fname, '.');
-										if(suffix && (strcmp(suffix, ".bin") == 0 || strcmp(suffix, ".BIN") == 0))
-										{
-												// 检查前8个字符是否全为数字
-												uint8_t all_digit = 1;
-												for(int i = 0; i < 8; i++)
-												{
-														if(fno.fname[i] < '0' || fno.fname[i] > '9')
-														{
-																all_digit = 0;
-																break;
-														}
-												}
-												
-												if(all_digit)
-												{
-														// 提取前8位数字并转换为数值
-														char num_str[9] = {0};
-														strncpy(num_str, fno.fname, 8);
-														uint32_t file_num = atoi(num_str);
-														
-														printf("  匹配成功: 编号=%lu\r\n", (unsigned long)file_num);
-														
-														// 更新最大编号（忽略00000000.bin）
-														if(file_num > max_num)
-														{
-																max_num = file_num;
-														}
-												}
-												else
-												{
-														printf("  前8字符不是全数字\r\n");
-												}
-										}
-										else
-										{
-												printf("  扩展名不是.bin\r\n");
-										}
-								}
-								else
-								{
-										// 如果长度不是12，可能是长文件名
-										printf("  长度不是12，跳过\r\n");
-								}
-						}
-				}
-				f_closedir(&dir);
-				
-				// 下一个编号 = 最大编号 + 1
-				next_file_num = max_num + 1;
-				
-				printf("最大文件编号: %08lu, 下一个编号: %08lu\r\n", 
-							 (unsigned long)max_num, (unsigned long)next_file_num);
-		}
-		
+    // 4. 查找下一个可用的文件名编号
+    printf("扫描AM29R目录中的文件...\r\n");
+    res = f_opendir(&dir, path);
+    if(res == FR_OK)
+    {
+        uint32_t max_num = 0;
+        while(1)
+        {
+            res = f_readdir(&dir, &fno);
+            if(res != FR_OK || fno.fname[0] == 0) break;
+            
+            if((fno.fattrib & AM_DIR) == 0)
+            {
+                uint8_t name_len = strlen(fno.fname);
+                if(name_len == 12)
+                {
+                    char* suffix = strrchr(fno.fname, '.');
+                    if(suffix && (strcmp(suffix, ".bin") == 0 || strcmp(suffix, ".BIN") == 0))
+                    {
+                        uint8_t all_digit = 1;
+                        for(int i = 0; i < 8; i++)
+                        {
+                            if(fno.fname[i] < '0' || fno.fname[i] > '9')
+                            {
+                                all_digit = 0;
+                                break;
+                            }
+                        }
+                        
+                        if(all_digit)
+                        {
+                            char num_str[9] = {0};
+                            strncpy(num_str, fno.fname, 8);
+                            uint32_t file_num = atoi(num_str);
+                            if(file_num > max_num)
+                            {
+                                max_num = file_num;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        f_closedir(&dir);
+        next_file_num = max_num + 1;
+        printf("最大文件编号: %08lu, 下一个编号: %08lu\r\n", 
+               (unsigned long)max_num, (unsigned long)next_file_num);
+    }
+    
     // 5. 生成文件名
     sprintf(file_path, "%s/%08lu.bin", path, (unsigned long)next_file_num);
     printf("准备创建文件: %s\r\n", file_path);
@@ -1588,25 +1648,18 @@ uint8_t AM29Read_To_File(void)
     if(res != FR_OK)
     {
         printf("创建文件失败! 错误码: %d\r\n", res);
-
-			// OLED显示失败
-      OLED_Clear();
-      printfOled(0,1,"Read Failed!");
-      printfOled(1,1,"Create File Failed");
-      printfOled(2,1,"%s", file_path);
-      printfOled(3,1,"Code:%d", res);
-      printfOled(7,1,"Press any key");
-      OLED_Refresh();
-			
-			f_mount(NULL, vol, 1);
+        OLED_Clear();
+        printfOled(0,1,"Read Failed!");
+        printfOled(1,1,"Create File Failed");
+        printfOled(2,1,"%s", file_path);
+        printfOled(3,1,"Code:%d", res);
+        printfOled(7,1,"Press any key");
+        OLED_Refresh();
+        f_mount(NULL, vol, 1);
         return 4;
     }
     
-    // 7. 芯片复位，确保处于正常读取模式
-    *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29LV320_RESET_CMD;
-    HAL_Delay(1);
-    
-    // 8. 获取开始时间
+    // 7. 获取开始时间
     if (HAL_RTC_GetTime(&hrtc, &read_start_time, RTC_FORMAT_BIN) == HAL_OK)
     {
         HAL_RTC_GetDate(&hrtc, &read_start_date, RTC_FORMAT_BIN);
@@ -1616,69 +1669,95 @@ uint8_t AM29Read_To_File(void)
                read_start_time.Hours, read_start_time.Minutes, read_start_time.Seconds);
     }
     
-    // 9. 逐块读取芯片内容并写入文件
-    printf("开始读取芯片内容...\r\n");
+    // 8. 分块读取芯片内容
+    printf("开始读取芯片内容（分64MB块处理）...\r\n");
     
-    while (read_bytes < AM29_CAPACITY)
-    {
-        uint32_t block_size = 512;  // 每次读取512字节
-        if (read_bytes + block_size > AM29_CAPACITY)
-        {
-            block_size = AM29_CAPACITY - read_bytes;
-        }
-        
-        uint32_t halfword_count = block_size / 2;
-        uint32_t start_halfword = read_bytes / 2;
-        
-        // 读取512字节（256个半字）
-        for (uint32_t i = 0; i < halfword_count; i++)
-        {
-            uint16_t data = *(FSMC_NOR_BASE_ADDR + start_halfword + i);
-            buffer[i*2] = (data >> 8) & 0xFF;     // 高字节
-            buffer[i*2 + 1] = data & 0xFF;        // 低字节
-        }
-        
-        // 写入文件
-        res = f_write(&file, buffer, block_size, &bw);
-        if (res != FR_OK || bw != block_size)
-        {
-            printf("文件写入失败! 错误码: %d\r\n", res);
+    // 循环处理每个64MB块
+		uint32_t total_blocks = AM29_CAPACITY / BLOCK_64MB;  // 总块数
+    if(total_blocks==0)
+		{
+			total_blocks = 1;
+		}
 
-						// OLED显示失败
-						OLED_Clear();
-						printfOled(0,1,"Read Failed!");
-						printfOled(1,1,"File write fail");
-						printfOled(2,1,"%s", file_path);
-						printfOled(3,1,"Code:%d", res);
-						printfOled(7,1,"Press any key");
-						OLED_Refresh();
-					
-            f_close(&file);
-            f_mount(NULL, vol, 1);
-            return 5;
-        }
+    for (current_block = 0; current_block < total_blocks; current_block++)
+    {
+        block_start_addr = current_block * BLOCK_64MB;
+        block_end_addr = block_start_addr + BLOCK_64MB;
+        bytes_in_block = 0;
         
-        read_bytes += block_size;
+        printf("\r\n===== 处理第 %lu 块  =====\r\n",
+               (unsigned long)current_block + 1);
         
-        // 每读取0x10000字节（64KB）显示进度
-        if (read_bytes % (64 * 1024) == 0 || read_bytes == AM29_CAPACITY)
+        // 8.1 设置A26~A31对应当前块
+        Set_A26_A31(block_start_addr);
+
+        // 8.4 读取当前块数据
+        while (bytes_in_block < BLOCK_64MB && read_bytes < AM29_CAPACITY)
         {
-            float percent = (float)read_bytes / AM29_CAPACITY * 100;
-            printf("读取进度：%lu/%lu 字节 (%.1f%%)\r\n",
-                   (unsigned long)read_bytes,
-                   (unsigned long)AM29_CAPACITY,
-                   percent);
-						// OLED显示进度
-						OLED_Clear();
-						printfOled(0,1,"Read: %.1f%%", percent);
-						OLED_Refresh();
+            uint32_t block_size = 512;  // 每次读取512字节
+            if (read_bytes + block_size > AM29_CAPACITY)
+            {
+                block_size = AM29_CAPACITY - read_bytes;
+            }
             
-            // LED闪烁提示
-            HAL_GPIO_TogglePin(LEDG_PORT, LEDG_PIN);
+            // 在当前块内的偏移地址（0~64MB-1）
+            uint32_t offset_in_block = bytes_in_block;
+            uint32_t halfword_count = block_size / 2;
+            uint32_t start_halfword = offset_in_block / 2;  // 在当前块内的半字偏移
+            
+            // 读取数据（使用块内偏移）
+            for (uint32_t i = 0; i < halfword_count; i++)
+            {
+                uint16_t data = *(FSMC_NOR_BASE_ADDR + start_halfword + i);
+                buffer[i*2] = (data >> 8) & 0xFF;     // 高字节
+                buffer[i*2 + 1] = data & 0xFF;        // 低字节
+            }
+            
+            // 写入文件
+            res = f_write(&file, buffer, block_size, &bw);
+            if (res != FR_OK || bw != block_size)
+            {
+                printf("文件写入失败! 错误码: %d\r\n", res);
+                OLED_Clear();
+                printfOled(0,1,"Read Failed!");
+                printfOled(1,1,"File write fail");
+                printfOled(2,1,"%s", file_path);
+                printfOled(3,1,"Code:%d", res);
+                printfOled(7,1,"Press any key");
+                OLED_Refresh();
+                f_close(&file);
+                f_mount(NULL, vol, 1);
+                return 5;
+            }
+            
+            read_bytes += block_size;
+            bytes_in_block += block_size;
+            
+            // 每读取128KB显示进度
+            if (read_bytes % (128 * 1024) == 0 || read_bytes == AM29_CAPACITY)
+            {
+                float percent = (float)read_bytes / AM29_CAPACITY * 100;
+                printf("读取进度：%lu/%lu 字节 (%.1f%%) | 当前块: %u/%u\r\n",
+                       (unsigned long)read_bytes,
+                       (unsigned long)AM29_CAPACITY,
+                       percent,
+                       current_block + 1,
+												 total_blocks
+												 );
+                
+                // OLED显示进度
+                OLED_Clear();
+                printfOled(0,1,"Read: %.1f%%", percent);
+                printfOled(1,1,"Block: %u/%u", current_block + 1, total_blocks);
+                OLED_Refresh();
+                
+                // LED闪烁提示
+                HAL_GPIO_TogglePin(LEDG_PORT, LEDG_PIN);
+            }
         }
     }
     
-    // 10. 获取结束时间并计算耗时
+    // 9. 获取结束时间并计算耗时
     if (HAL_RTC_GetTime(&hrtc, &read_end_time, RTC_FORMAT_BIN) == HAL_OK)
     {
         HAL_RTC_GetDate(&hrtc, &read_end_date, RTC_FORMAT_BIN);
@@ -1691,27 +1770,27 @@ uint8_t AM29Read_To_File(void)
         printf("总耗时：%u 秒\r\n", read_total_seconds);
     }
     
-    // 11. 关闭文件并卸载TF卡
+    // 10. 关闭文件并卸载TF卡
     f_close(&file);
     f_mount(NULL, vol, 1);
     
-    // 12. 芯片复位
+    // 11. 复位所有高位地址线和芯片
+    Set_A26_A31_All_Zero();
     *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29LV320_RESET_CMD;
     HAL_Delay(1);
     
     printf("\r\n===== 读取完成！文件已保存为：%s =====\r\n", file_path);
     printf("文件大小：%u 字节\r\n", read_bytes);
     
-		// OLED显示
-		OLED_Clear();
-		printfOled(0,1,"Read Success!");
-		printfOled(1,1,"%u S", read_total_seconds);
-		printfOled(2,1,"%s", file_path);
-		printfOled(3,1,"%uKBytes", read_bytes/1024);
-		
-		printfOled(7,1,"Press any key");
-		OLED_Refresh();
-		
+    // OLED显示
+    OLED_Clear();
+    printfOled(0,1,"Read Success!");
+    printfOled(1,1,"%u S", read_total_seconds);
+    printfOled(2,1,"%s", file_path);
+    printfOled(3,1,"%uKBytes", read_bytes/1024);
+    printfOled(7,1,"Press any key");
+    OLED_Refresh();
+    
     return 0;
 }
 
@@ -2347,11 +2426,18 @@ uint8_t KEY_CANCEL_Detect(void)
   return key_flag;
 }
 
+
+void delay_us(uint32_t us)
+{
+    // 1us = 1000ns
+    delayns(us * 1000);
+}
+
 // 读取AM29LV320的JEDEC ID，返回32位数据：[31:16]=制造商ID，[15:0]=设备ID
 uint32_t AM29LV320_Read_ID(void)  
 {
   // 步骤1：强制复位芯片，退出所有特殊模式（确保初始状态）
-  *(FSMC_NOR_BASE_ADDR + 0x00) = 0xFFFF;
+  *(FSMC_NOR_BASE_ADDR + 0x00) = AM29LV320_RESET_CMD;
   HAL_Delay(1);
 
   // 步骤2：发送读ID指令的解锁序列（严格按字节地址→16位偏移转换）
@@ -2371,7 +2457,7 @@ uint32_t AM29LV320_Read_ID(void)
   am29lv320_cap_id = *(FSMC_NOR_BASE_ADDR + 0x02); // 字节0x0002 → 容量ID (0x0080)
 
   // 步骤4：发送复位指令，退出ID模式，回到正常数据读取模式
-  *(FSMC_NOR_BASE_ADDR + 0x00) = 0xFFFF;
+  *(FSMC_NOR_BASE_ADDR + 0x00) = AM29LV320_RESET_CMD;
   HAL_Delay(1);
 
   // 组合32位ID返回
@@ -2387,7 +2473,7 @@ void AM29LV320_Read_Data(uint16_t addr_halfword, uint16_t len, uint16_t *buf)
   if (buf == NULL || len == 0) return; // 入参校验
 
   // 步骤1：发送复位指令，确保芯片处于正常读模式（避免ID模式干扰）
-  *(FSMC_NOR_BASE_ADDR + 0x00) = 0xFFFF;
+  *(FSMC_NOR_BASE_ADDR + 0x00) = AM29LV320_RESET_CMD;
   HAL_Delay(1);
 
   // 步骤2：读取指定地址的数据（16位总线直接访问）
@@ -2471,8 +2557,8 @@ uint32_t AM29LV320_Parse_CFI_Capacity(uint16_t cfi_value)
  */
 uint8_t AM29LV320_Chip_Erase(void)
 {
-	
-		// 定义变量：存储开始/结束的Unix时间戳，以及日期时间结构体
+	Set_A26_A31_All_Zero();
+	// 定义变量：存储开始/结束的Unix时间戳，以及日期时间结构体
     uint32_t erase_start_unix = 0;
     uint32_t erase_end_unix = 0;
     uint32_t erase_total_seconds = 0;
@@ -2498,7 +2584,7 @@ uint8_t AM29LV320_Chip_Erase(void)
 	  
     // 超时计数器(单位:秒, 最大30秒超时保护)
     uint32_t timeout_count = 0;
-		uint32_t max_timeout = 65535;
+	uint32_t max_timeout = 65535;
     // 擦除完成标志
     uint8_t erase_ok = 0;
     // 状态寄存器数据
@@ -2510,45 +2596,68 @@ uint8_t AM29LV320_Chip_Erase(void)
     // RY/BY#引脚状态(低=忙 高=就绪)
     GPIO_PinState ry_by_state = GPIO_PIN_RESET;
 
-		uint16_t cap = AM29LV320_Read_CFI_Capacity();
-	  if(cap==0)
-		{
-			//获取容量失败
-			printf("获取容量失败\r\n");
-			
-			// OLED显示失败
-      OLED_Clear();
-      printfOled(0,1,"Erase Failed!");
-      printfOled(1,1,"Get CFI Cap Fail");
-      printfOled(7,1,"Press any key");
-      OLED_Refresh();
-			
-			return 99;
-		} 
-		else if(cap<=0x14)
-		{
-			//4M
-			max_timeout = 60;
-		}
-		else if(cap>=0x15 && cap<=0x1C)
-		{
-			max_timeout = 120 * (cap-0x14);
-		}
-		else
-		{
-			printf("最大支持256MByte(S70GL02)\r\n");
-			
-			// OLED显示失败
-      OLED_Clear();
-      printfOled(0,1,"Erase Failed!");
-      printfOled(1,1,"Max support:256M");
-      printfOled(7,1,"Press any key");
-      OLED_Refresh();
-			
-			return 98;			
-		}
+	uint16_t cap = AM29LV320_Read_CFI_Capacity();
+	if(cap==0)
+	{
+		//获取容量失败
+		printf("获取容量失败\r\n");
+		
+		// OLED显示失败
+        OLED_Clear();
+        printfOled(0,1,"Erase Failed!");
+        printfOled(1,1,"Get CFI Cap Fail");
+        printfOled(7,1,"Press any key");
+        OLED_Refresh();
+		
+		return 99;
+	} 
+	else if(cap<=0x14)
+	{
+		//4M
+		max_timeout = 60;
+	}
+	else if(cap>=0x15 && cap<=0x1C)
+	{
+		max_timeout = 120 * (cap-0x14);
+	}
+	else
+	{
+		printf("最大支持256MByte(S70GL02)\r\n");
+		
+		// OLED显示失败
+        OLED_Clear();
+        printfOled(0,1,"Erase Failed!");
+        printfOled(1,1,"Max support:256M");
+        printfOled(7,1,"Press any key");
+        OLED_Refresh();
+		
+		return 98;			
+	}
 	
+	// ===== 计算芯片总容量和分块参数 =====
+    uint32_t AM29_CAPACITY = AM29LV320_Parse_CFI_Capacity(cap);
+    const uint32_t BLOCK_64MB = 64 * 1024 * 1024;  // 64MB
+    uint32_t total_blocks = AM29_CAPACITY / BLOCK_64MB;  // 总块数
+	  if(total_blocks==0)
+		{
+			total_blocks = 1;
+		}
+    uint32_t chip_total_halfwords = AM29_CAPACITY >> 1;   // 总半字数
+    
+    printf("芯片容量: %lu MB, 总块数: %lu, 总半字数: %lu\r\n", 
+           (unsigned long)(AM29_CAPACITY / 1024 / 1024),
+           (unsigned long)total_blocks,
+           (unsigned long)chip_total_halfwords);
 	
+ 	// 全芯片擦除验证：逐地址读取并检查是否为0xFFFF
+	uint32_t error_count = 0;          // 统计非0xFFFF的地址数量
+	uint32_t total_checked_halfwords = 0;     // 已检查的地址总数
+	uint32_t current_block = 0;
+	uint32_t block_start_halfword = 0;
+	uint32_t block_end_halfword = BLOCK_64MB >> 1;  // 每块64MB对应的半字数
+	uint32_t halfwords_per_block = BLOCK_64MB >> 1;
+	uint32_t halfwords_checked_in_block = 0;
+
     /************************** 1. 初始化RY/BY#引脚 **************************/
     // 使能GPIOD时钟
     __HAL_RCC_GPIOD_CLK_ENABLE();
@@ -2561,8 +2670,17 @@ uint8_t AM29LV320_Chip_Erase(void)
     HAL_GPIO_Init(RY_BY_PORT, &gpio_init);
 
     // 复位芯片, 确保退出之前的异常状态
-    *(FSMC_NOR_BASE_ADDR + 0x0000) = 0xFFFF;
-    HAL_Delay(1);
+    *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29LV320_RESET_CMD;
+    HAL_Delay(10);
+
+		for (current_block = 0; current_block < total_blocks; current_block=current_block+2)
+		{
+		block_start_halfword = current_block * halfwords_per_block;
+		
+		printf("\r\n第 %u 块\r\n",current_block + 1);
+		
+		// 设置A26~A31对应当前块
+		Set_A26_A31(current_block * BLOCK_64MB);
 
     /************************** 2. 发送擦除命令序列 **************************/
     // 严格按照AM29LV320手册的擦除命令时序
@@ -2591,14 +2709,14 @@ uint8_t AM29LV320_Chip_Erase(void)
     else
     {
         printf("RY/BY# is 1, 擦除状态进入失败\r\n");
-			
-			  // OLED显示失败
-				OLED_Clear();
-				printfOled(0,1,"Erase Failed!");
-				printfOled(1,1,"RY/BY# not 1");
-				printfOled(7,1,"Press any key");
-				OLED_Refresh();
-			
+		
+		// OLED显示失败
+		OLED_Clear();
+		printfOled(0,1,"Erase Failed!");
+		printfOled(1,1,"RY/BY# not 1");
+		printfOled(7,1,"Press any key");
+		OLED_Refresh();
+		
         return 2; // 进入擦除状态失败
     }
 
@@ -2609,17 +2727,17 @@ uint8_t AM29LV320_Chip_Erase(void)
         if (timeout_count > max_timeout)
         {
             printf("擦除超时! (Count: %u)\r\n", timeout_count);
-					
-						// OLED显示失败
-						OLED_Clear();
-						printfOled(0,1,"Erase Failed!");
-					  printfOled(1,1,"TimeOut:%u", timeout_count);
-						printfOled(7,1,"Press any key");
-						OLED_Refresh();
+			
+			// OLED显示失败
+			OLED_Clear();
+			printfOled(0,1,"Erase Failed!");
+			printfOled(1,1,"TimeOut:%u", timeout_count);
+			printfOled(7,1,"Press any key");
+			OLED_Refresh();
 
             // 复位芯片退出擦除状态
-            *(FSMC_NOR_BASE_ADDR + 0x0000) = 0xFFFF;
-            HAL_Delay(1);
+            *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29LV320_RESET_CMD;
+            HAL_Delay(10);
             return 1; // 超时错误
         }
 
@@ -2627,12 +2745,13 @@ uint8_t AM29LV320_Chip_Erase(void)
         ry_by_state = HAL_GPIO_ReadPin(RY_BY_PORT, RY_BY_PIN);
         printf("计时:%ds, RY/BY#:%d\r\n", timeout_count, 
                (ry_by_state == GPIO_PIN_SET) ? 1 : 0);
-				
-				// OLED显示过程
-				OLED_Clear();
-				printfOled(0,1,"Erasing:%ds", timeout_count);
-				printfOled(1,1,"RY/BY#:%d", (ry_by_state == GPIO_PIN_SET) ? 1 : 0);
-				OLED_Refresh();
+		
+		// OLED显示过程
+		OLED_Clear();
+		printfOled(0,1,"Erasing:%ds", timeout_count);
+		printfOled(1,1,"RY/BY#:%d", (ry_by_state == GPIO_PIN_SET) ? 1 : 0);
+		printfOled(2,1,"Block: %lu/%lu", (unsigned long)current_block + 1, (unsigned long)total_blocks);
+		OLED_Refresh();
 
 
         // 仅当RY/BY#为高(就绪)时, 读取状态寄存器进行验证
@@ -2673,117 +2792,143 @@ uint8_t AM29LV320_Chip_Erase(void)
         HAL_GPIO_TogglePin(LEDG_PORT, LEDG_PIN);
         timeout_count++;
     }
-		
+	}
+	
 
     /************************** 4. 复位芯片并验证擦除结果 **************************/
     // 复位芯片, 退出状态查询模式
-    *(FSMC_NOR_BASE_ADDR + 0x0000) = 0xFFFF;
+    *(FSMC_NOR_BASE_ADDR + 0x0000) = 0x00F0;
     HAL_Delay(10); // 确保复位生效
 
-		// 全芯片擦除验证：逐地址读取并检查是否为0xFFFF
-		uint32_t error_count = 0;          // 统计非0xFFFF的地址数量
-		uint32_t total_check_addr = 0;     // 已检查的地址总数
-		uint32_t chip_total_halfwords = 0; // 芯片总半字数量（4MB = 2M 半字）
 
-		// 根据CFI容量计算芯片总半字数（4MB = 4*1024*1024 / 2 = 2097152 半字）
-		if (chip_total_halfwords == 0) {
-			chip_total_halfwords = 2097152; // TODO:获取正确的容量
-		}
+	printf("开始全芯片擦除验证，总校验半字数：%lu\r\n", (unsigned long)chip_total_halfwords);
 
-		printf("开始全芯片擦除验证，总校验半字数：%lu\r\n", (unsigned long)chip_total_halfwords);
-
-		// 逐半字地址读取并验证（16位总线，直接访问FSMC映射地址）
-		for (total_check_addr = 0; total_check_addr < chip_total_halfwords; total_check_addr++)
-		{
-				// 直接读取当前半字地址数据（不调用封装函数，避免依赖）
-				uint16_t current_data = *(FSMC_NOR_BASE_ADDR + total_check_addr);
-				
-				// 检查是否为擦除后的预期值0xFFFF
-				if (current_data != 0xFFFF)
-				{
-						error_count++;
-						// 每1000个错误打印一次（避免串口刷屏）
-						if (error_count % 1000 == 0) {
-								printf("验证异常：地址0x%08X 数据0x%04X | 累计错误数：%lu\r\n",
-											 (uint32_t)(FSMC_NOR_BASE_ADDR + total_check_addr),
-											 current_data, (unsigned long)error_count);
-						}
-				}
-				
-				// 每校验100000个地址打印进度（提升交互性）
-				if (total_check_addr % 100000 == 0) {
-					  HAL_GPIO_TogglePin(LEDG_PORT, LEDG_PIN);
-						printf("验证进度：%lu/%lu  | 当前错误数：%lu\r\n",
-									 (unsigned long)total_check_addr*2,
-									 (unsigned long)chip_total_halfwords*2,
-									 (unsigned long)error_count);
-						// OLED显示过程
-						OLED_Clear();
-						printfOled(0,1,"Blank Check");
-						uint16_t percent_x10 = (total_check_addr * 1000) / chip_total_halfwords;
-						printfOled(1,1,"%d.%d %%", percent_x10/10, percent_x10%10);
-						OLED_Refresh();
-				}
-		}
+	// 逐块验证（每64MB一块）
+	for (current_block = 0; current_block < total_blocks; current_block++)
+	{
+		block_start_halfword = current_block * halfwords_per_block;
 		
-		// 2. 获取擦除结束的RTC时间+日期，并转换为Unix时间戳
+		printf("\r\n===== 验证第 %lu 块 (半字地址范围: 0x%08lX - 0x%08lX) =====\r\n",
+			   (unsigned long)current_block + 1,
+			   (unsigned long)block_start_halfword,
+			   (unsigned long)(block_start_halfword + halfwords_per_block - 1));
+		
+		// 设置A26~A31对应当前块
+		Set_A26_A31(current_block * BLOCK_64MB);
+
+		// 验证当前块内的所有半字（块内偏移从0开始）
+		for (halfwords_checked_in_block = 0; 
+			 halfwords_checked_in_block < halfwords_per_block && 
+			 total_checked_halfwords < chip_total_halfwords; 
+			 halfwords_checked_in_block++)
+		{
+			// 在当前块内使用偏移地址读取
+			uint16_t current_data = *(FSMC_NOR_BASE_ADDR + halfwords_checked_in_block);
+			
+			// 检查是否为擦除后的预期值0xFFFF
+			if (current_data != 0xFFFF)
+			{
+				error_count++;
+				// 计算全局半字地址用于显示
+				uint32_t global_halfword = block_start_halfword + halfwords_checked_in_block;
+				// 每0x20000个错误打印一次（避免串口刷屏）
+				if (error_count % 0x20000 == 0) {
+					printf("验证异常：全局地址0x%08X (块内偏移0x%08X) 数据0x%04X | 累计错误数：%lu\r\n",
+						   (uint32_t)(FSMC_NOR_BASE_ADDR + global_halfword),
+						   (uint32_t)halfwords_checked_in_block,
+						   current_data, (unsigned long)error_count);
+				}
+			}
+			
+			total_checked_halfwords++;
+			
+			// 每校验0x20000个地址打印进度（提升交互性）
+			if (total_checked_halfwords % 0x20000 == 0) {
+				HAL_GPIO_TogglePin(LEDG_PORT, LEDG_PIN);
+				printf("验证进度：%lu/%lu 半字 | 当前错误数：%lu | 当前块: %lu/%lu\r\n",
+					   (unsigned long)total_checked_halfwords,
+					   (unsigned long)chip_total_halfwords,
+					   (unsigned long)error_count,
+					   (unsigned long)current_block + 1,
+					   (unsigned long)total_blocks);
+				
+				// OLED显示过程
+				OLED_Clear();
+				printfOled(0,1,"Blank Check");
+				uint16_t percent_x10 = (total_checked_halfwords * 1000) / chip_total_halfwords;
+				printfOled(1,1,"%d.%d %%", percent_x10/10, percent_x10%10);
+				printfOled(2,1,"Block: %lu/%lu", (unsigned long)current_block + 1, (unsigned long)total_blocks);
+				OLED_Refresh();
+			}
+		}
+	}
+	
+	// 2. 获取擦除结束的RTC时间+日期，并转换为Unix时间戳
     if (HAL_RTC_GetTime(&hrtc, &erase_end_time, RTC_FORMAT_BIN) != HAL_OK)
     {
         printf("获取擦除结束时间失败！\r\n");
     }
-		else 
-		{
-				HAL_RTC_GetDate(&hrtc, &erase_end_date, RTC_FORMAT_BIN);
-				erase_end_unix = rtc_to_unix_timestamp(&erase_end_date, &erase_end_time);
-				printf("擦除结束时间（Unix时间戳）：%lu 秒\r\n", (unsigned long)erase_end_unix);
-				printf("擦除结束时间（本地）：%04d-%02d-%02d %02d:%02d:%02d\r\n",
-							 2000+erase_end_date.Year, erase_end_date.Month, erase_end_date.Date,
-							 erase_end_time.Hours, erase_end_time.Minutes, erase_end_time.Seconds);
+	else 
+	{
+		HAL_RTC_GetDate(&hrtc, &erase_end_date, RTC_FORMAT_BIN);
+		erase_end_unix = rtc_to_unix_timestamp(&erase_end_date, &erase_end_time);
+		printf("擦除结束时间（Unix时间戳）：%lu 秒\r\n", (unsigned long)erase_end_unix);
+		printf("擦除结束时间（本地）：%04d-%02d-%02d %02d:%02d:%02d\r\n",
+			 2000+erase_end_date.Year, erase_end_date.Month, erase_end_date.Date,
+			 erase_end_time.Hours, erase_end_time.Minutes, erase_end_time.Seconds);
 
-				// 3. 计算擦除耗时（直接相减，无需处理跨时段）
-				erase_total_seconds = erase_end_unix - erase_start_unix;
-				printf("AM29芯片擦除耗时：%u 秒\r\n", erase_total_seconds);
-		}
+		// 3. 计算擦除耗时（直接相减，无需处理跨时段）
+		erase_total_seconds = erase_end_unix - erase_start_unix;
+		printf("AM29芯片擦除耗时：%u 秒\r\n", erase_total_seconds);
+	}
 
-		// 打印最终验证结果
-		printf("全芯片验证完成：共校验%u个半字 | 非0xFFFF地址数：%u\r\n",
-					 total_check_addr, error_count);
+	// 打印最终验证结果
+	printf("全芯片验证完成：共校验%lu个半字 | 非0xFFFF地址数：%lu\r\n",
+		   (unsigned long)total_checked_halfwords, 
+		   (unsigned long)error_count);
 
-		// 根据错误数更新擦除结果标志
-		if (error_count > 0)
-		{
-				erase_ok = 0; // 存在未擦除干净的地址，置为错误
-				printf("擦除验证失败！共检测到%u个地址未擦除干净\r\n", error_count);
-		}
-		else
-		{
-				printf("擦除验证通过！全芯片所有地址均为0xFFFF\r\n");
-		}
+	// 根据错误数更新擦除结果标志
+	if (error_count > 0)
+	{
+		erase_ok = 0; // 存在未擦除干净的地址，置为错误
+		printf("擦除验证失败！共检测到%lu个地址未擦除干净\r\n", (unsigned long)error_count);
+	}
+	else
+	{
+		printf("擦除验证通过！全芯片所有地址均为0xFFFF\r\n");
+	}
 
 
-    /************************** 5. 返回擦除结果 **************************/
+    /************************** 5. 复位所有高位地址线和芯片 **************************/
+    Set_A26_A31_All_Zero();
+    *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29LV320_RESET_CMD;
+    HAL_Delay(1);
+
+    /************************** 6. 返回擦除结果 **************************/
     if (erase_ok)
     {
-			// OLED显示
-			OLED_Clear();
-			printfOled(0,1,"Erase Success", timeout_count);
-			printfOled(1,1,"Time:%us", erase_total_seconds);
-			printfOled(7,1,"Press any key");
-			OLED_Refresh();
-      return 0; // 擦除成功
+		// OLED显示
+		OLED_Clear();
+		printfOled(0,1,"Erase Success");
+		printfOled(1,1,"Time:%us", erase_total_seconds);
+		printfOled(7,1,"Press any key");
+		OLED_Refresh();
+        return 0; // 擦除成功
     }
     else
     {
-			// OLED显示
-			OLED_Clear();
-			printfOled(0,1,"Erase Failed", timeout_count);
-			printfOled(1,1,"Not 0xFFFF Count:");
-			printfOled(2,1,"%u",error_count);
-			printfOled(7,1,"Press any key");
-			OLED_Refresh();
-      return 2; // 状态错误
+		// OLED显示
+		OLED_Clear();
+		printfOled(0,1,"Erase Failed");
+		printfOled(1,1,"Not 0xFFFF Count:");
+		printfOled(2,1,"%lu", (unsigned long)error_count);
+		printfOled(7,1,"Press any key");
+		OLED_Refresh();
+        return 2; // 状态错误
     }
 }
+
+
 
 /**
  * @brief  检查AM29LV320芯片指定区域是否为空白（0xFFFF）
@@ -3592,7 +3737,6 @@ void delaycmd(void)
     {
         __NOP(); // 空操作指令，稳定指令周期
     }
-		
 }
 
 // 遍历AM29目录下所有.bin文件并返回列表（排除包含中文字符的文件名）
