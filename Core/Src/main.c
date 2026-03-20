@@ -180,8 +180,8 @@ uint32_t AM29_Parse_CFI_Capacity(uint16_t cfi_value); // 解析CFI容量值为实际字节
 uint8_t AM29_Read_To_File(void); // 读取到文件
 uint8_t AM29_Chip_Erase(void);   // 整芯片擦除
 
-static void Set_A26_A31(uint32_t byte_address); // 设置A26~A31
-static void Set_A26_A31_All_Zero(void);         // A26~A31置0
+static void Set_A25_A31(uint32_t byte_address); // 设置A25~A31
+static void Set_A25_A31_All_Zero(void);         // A25~A31置0
 
 uint32_t rtc_to_unix_timestamp(RTC_DateTypeDef *date, RTC_TimeTypeDef *time);
 
@@ -352,7 +352,7 @@ int main(void)
     // 启动时通过USART1发送hello（波特率115200）
     printf("AM29 Programmer By motozilog V1.0\r\n");
 
-    Set_A26_A31_All_Zero();
+    Set_A25_A31_All_Zero();
 
     /* USER CODE END 2 */
 
@@ -791,11 +791,11 @@ static void MX_FSMC_Init(void)
 /* USER CODE BEGIN 4 */
 
 /**
- * @brief  根据字节地址设置A26~A31引脚状态
+ * @brief  根据字节地址设置A25~A31引脚状态
  * @param  byte_address: 字节地址
  * @retval None
  */
-static void Set_A26_A31(uint32_t byte_address)
+static void Set_A25_A31(uint32_t byte_address)
 {
     // 从A25开始取7位（A25-A31）
     uint32_t new_a25_a31 = (byte_address >> 26) & 0x7F; // 7位：0x7F = 01111111
@@ -811,10 +811,10 @@ static void Set_A26_A31(uint32_t byte_address)
 }
 
 /**
- * @brief  将A26~A31全部置0
+ * @brief  将A25~A31全部置0
  * @retval None
  */
-static void Set_A26_A31_All_Zero(void)
+static void Set_A25_A31_All_Zero(void)
 {
     HAL_GPIO_WritePin(A25_GPIO_Port, A25_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(A26_GPIO_Port, A26_Pin, GPIO_PIN_RESET);
@@ -1669,7 +1669,7 @@ uint8_t AM29_Read_To_File(void)
                (unsigned long)current_block + 1);
 
         // 8.1 设置A26~A31对应当前块
-        Set_A26_A31(block_start_addr);
+        Set_A25_A31(block_start_addr);
 
         // 8.4 读取当前块数据
         while (bytes_in_block < BLOCK_64MB && read_bytes < AM29_CAPACITY)
@@ -1754,7 +1754,7 @@ uint8_t AM29_Read_To_File(void)
     f_mount(NULL, vol, 1);
 
     // 11. 复位所有高位地址线和芯片
-    Set_A26_A31_All_Zero();
+    Set_A25_A31_All_Zero();
     *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29_RESET_CMD;
     HAL_Delay(1);
 
@@ -2527,7 +2527,7 @@ uint32_t AM29_Parse_CFI_Capacity(uint16_t cfi_value)
  */
 uint8_t AM29_Chip_Erase(void)
 {
-    Set_A26_A31_All_Zero();
+    Set_A25_A31_All_Zero();
     // 定义变量：存储开始/结束的Unix时间戳，以及日期时间结构体
     uint32_t erase_start_unix = 0;
     uint32_t erase_end_unix = 0;
@@ -2607,10 +2607,6 @@ uint8_t AM29_Chip_Erase(void)
     {
         total_blocks = 1;
     }
-    else if (total_blocks >= 2)
-    {
-        total_blocks = 2;
-    }
     uint32_t chip_total_halfwords = AM29_CAPACITY >> 1; // 总半字数
 
     printf("芯片容量: %u MB, 总块数: %u, 总半字数: %u\r\n",
@@ -2649,7 +2645,7 @@ uint8_t AM29_Chip_Erase(void)
         printf("\r\n第 %u 块\r\n", current_block + 1);
 
         // 设置A26~A31对应当前块
-        Set_A26_A31(current_block * BLOCK_64MB);
+        Set_A25_A31(current_block * BLOCK_64MB);
 
         /************************** 2. 发送擦除命令序列 **************************/
         // 严格按照AM29LV320手册的擦除命令时序
@@ -2822,7 +2818,7 @@ uint8_t AM29_Chip_Erase(void)
                (unsigned long)(block_start_halfword + halfwords_per_block - 1));
 
         // 设置A26~A31对应当前块
-        Set_A26_A31(current_block * BLOCK_64MB);
+        Set_A25_A31(current_block * BLOCK_64MB);
 
         // 验证当前块内的所有半字（块内偏移从0开始）
         for (halfwords_checked_in_block = 0;
@@ -2884,7 +2880,7 @@ uint8_t AM29_Chip_Erase(void)
     }
 
     /************************** 5. 复位所有高位地址线和芯片 **************************/
-    Set_A26_A31_All_Zero();
+    Set_A25_A31_All_Zero();
     *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29_RESET_CMD;
     HAL_Delay(1);
 
@@ -3276,10 +3272,6 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
     {
         total_blocks = 1;
     }
-    else if (total_blocks > 2)
-    {
-        total_blocks = 2;
-    }
 
     printf("AM29容量: %lu Bytes (%lu MB), 总块数: %u\r\n",
            (unsigned long)AM29_MAX_CAPACITY,
@@ -3428,7 +3420,7 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
                (unsigned long)(block_start_addr + BLOCK_64MB - 1));
 
         // 8.1 设置A26~A31对应当前块
-        Set_A26_A31(block_start_addr);
+        Set_A25_A31(block_start_addr);
 
         // 8.2 写入当前块的数据
         while (bytes_in_block < BLOCK_64MB && written_bytes < file_size)
@@ -3485,15 +3477,6 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
                     }
 
                     // ===== 执行Buffer Programming =====
-                    // 注意：前几个命令需要在A26=0的地址空间执行
-
-                    // 步骤1: 设置A26=0, A27根据block（但前几个命令在bank1的固定地址）
-                    // 先设置A26=0, A27根据block
-                    uint8_t new_a26_a31 = (block_start_addr >> 26) & 0x3F;
-                    HAL_GPIO_WritePin(A26_GPIO_Port, A26_Pin, GPIO_PIN_RESET); // A26强制为0
-                    HAL_GPIO_WritePin(GPIOB, A27_Pin, (new_a26_a31 & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-                    // A28-A31保持之前的状态
-
                     // 步骤2: 解锁序列1 (地址0x555)
                     *(FSMC_NOR_BASE_ADDR + 0x555) = 0x00AA;
                     delaycmd();
@@ -3504,7 +3487,6 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
 
                     // 步骤4: 写Buffer Program命令 (0x0025) 到目标地址的起始半字地址
                     // 这里需要切换到正确的块地址来写入命令
-                    Set_A26_A31(block_start_addr); // 切换到目标块
                     *(FSMC_NOR_BASE_ADDR + block_halfword_offset) = 0x0025;
                     delaycmd();
 
@@ -3599,12 +3581,6 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
                 }
 
                 // 执行Write Buffer Programming命令序列
-                // 步骤1: 解锁序列1
-                uint8_t new_a26_a31 = (block_start_addr >> 26) & 0x3F;
-
-                HAL_GPIO_WritePin(A26_GPIO_Port, A26_Pin, GPIO_PIN_RESET);
-                HAL_GPIO_WritePin(GPIOB, A27_Pin, (new_a26_a31 & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-
                 *(FSMC_NOR_BASE_ADDR + 0x555) = 0x00AA;
                 delaycmd();
 
@@ -3613,7 +3589,6 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
                 delaycmd();
 
                 // 步骤3: 写Buffer Program命令 (0x0025) 到目标地址的起始半字地址
-                Set_A26_A31(block_start_addr); // 切换到目标块
                 *(FSMC_NOR_BASE_ADDR + block_halfword_offset) = 0x0025;
                 delaycmd();
 
@@ -3835,7 +3810,7 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
     }
 
     // 9. 复位所有高位地址线和芯片
-    Set_A26_A31_All_Zero();
+    Set_A25_A31_All_Zero();
     *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29_RESET_CMD;
     HAL_Delay(1);
 
@@ -3885,7 +3860,7 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
                    (unsigned long)(block_start_addr + block_verify_limit - 1));
 
             // 设置A26~A31对应当前块
-            Set_A26_A31(block_start_addr);
+            Set_A25_A31(block_start_addr);
 
             // 验证当前块内的数据
             while (block_verify_offset < block_verify_limit && verify_addr < file_size)
@@ -4044,7 +4019,7 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
     f_close(&file);
     f_mount(NULL, vol, 1);
 
-    Set_A26_A31_All_Zero();
+    Set_A25_A31_All_Zero();
     *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29_RESET_CMD;
     HAL_Delay(1);
 

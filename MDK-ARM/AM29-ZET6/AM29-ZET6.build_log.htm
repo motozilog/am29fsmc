@@ -27,52 +27,7 @@ Project File Date:  03/10/2026
 <h2>Output:</h2>
 *** Using Compiler 'V5.06 update 7 (build 960)', folder: 'C:\Keil_v5\ARM\ARMCC\Bin'
 Build target 'AM29-ZET6'
-compiling main.c...
-../Core/Src/main.c(921): warning:  #177-D: variable "last_menu_line"  was declared but never referenced
-      static uint8_t last_menu_line = 3;
-../Core/Src/main.c(1121): warning:  #177-D: variable "dummy"  was declared but never referenced
-      uint8_t dummy;
-../Core/Src/main.c(1123): warning:  #177-D: variable "status"  was declared but never referenced
-      USBD_StatusTypeDef status;
-../Core/Src/main.c(1477): warning:  #177-D: variable "file_size"  was declared but never referenced
-      uint32_t file_size = 0;
-../Core/Src/main.c(1496): warning:  #550-D: variable "block_end_addr"  was set but never used
-      uint32_t block_end_addr = BLOCK_64MB; // 当前块的结束地址
-../Core/Src/main.c(1784): warning:  #177-D: variable "confirm"  was declared but never referenced
-      uint8_t confirm = 0;
-../Core/Src/main.c(1855): warning:  #177-D: variable "user_choice"  was declared but never referenced
-      uint8_t user_choice = 0;
-../Core/Src/main.c(1860): warning:  #550-D: variable "last_selection"  was set but never used
-      uint8_t last_selection = 0;    // 上一次选中的行，用于恢复反色
-../Core/Src/main.c(2561): warning:  #550-D: variable "q6_prev"  was set but never used
-      uint8_t q6_prev = 0;
-../Core/Src/main.c(2626): warning:  #177-D: variable "block_end_halfword"  was declared but never referenced
-      uint32_t block_end_halfword = BLOCK_64MB / 2; // 每块64MB对应的半字数
-../Core/Src/main.c(2963): warning:  #550-D: variable "first_error_halfword"  was set but never used
-      uint32_t first_error_halfword = 0;
-../Core/Src/main.c(3120): warning:  #177-D: variable "key"  was declared but never referenced
-          uint8_t key = 0;
-../Core/Src/main.c(3451): warning:  #177-D: variable "bytes_to_next_boundary"  was declared but never referenced
-                      uint32_t bytes_to_next_boundary = 512 - alignment_offset;
-../Core/Src/main.c(3983): warning:  #188-D: enumerated type mixed with another type
-                          HAL_GPIO_WritePin(LEDG_PORT, LEDG_PIN, !HAL_GPIO_ReadPin(LEDG_PORT, LEDG_PIN)); // 绿灯闪烁
-../Core/Src/main.c(3857): warning:  #177-D: variable "last_progress_percent"  was declared but never referenced
-          uint32_t last_progress_percent = 0;
-../Core/Src/main.c(3858): warning:  #550-D: variable "last_progress_bytes"  was set but never used
-          uint32_t last_progress_bytes = 0;
-../Core/Src/main.c(3860): warning:  #550-D: variable "last_progress_time"  was set but never used
-          uint32_t last_progress_time = verify_start_time;
-../Core/Src/main.c(4135): warning:  #111-D: statement is unreachable
-      printf("蜂鸣器响3秒...START\r\n");
-../Core/Src/main.c(99): warning:  #550-D: variable "g_tick_step_us"  was set but never used
-  static uint32_t g_tick_step_us = 0; // Tick递增步长（us，仅作为备用参数）
-../Core/Src/main.c(1333): warning:  #177-D: function "UART_Read_User_Input"  was declared but never referenced
-  static uint8_t UART_Read_User_Input(void)
-../Core/Src/main.c: 20 warnings, 0 errors
-linking...
-Program Size: Code=58790 RO-data=9298 RW-data=356 ZI-data=32100  
-FromELF: creating hex file...
-"AM29-ZET6\AM29-ZET6.axf" - 0 Error(s), 20 Warning(s).
+"AM29-ZET6\AM29-ZET6.axf" - 0 Error(s), 0 Warning(s).
 
 <h2>Software Packages used:</h2>
 
@@ -96,7 +51,7 @@ Package Vendor: Keil
 
    * Component: ARM::CMSIS:CORE:5.4.0
       Include file:  CMSIS\Core\Include\tz_context.h
-Build Time Elapsed:  00:00:03
+Build Time Elapsed:  00:00:01
 </pre>
 </body>
 </html>
