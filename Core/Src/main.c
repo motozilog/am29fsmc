@@ -69,6 +69,9 @@ RTC_HandleTypeDef hrtc;
 #define BUZZER_PIN GPIO_PIN_6
 #define BUZZER_PORT GPIOC
 
+#define A25_Pin GPIO_PIN_14
+#define A25_GPIO_Port GPIOG
+
 // ********** AM29LV320 FSMC 配置 **********
 #define FSMC_NOR_BASE_ADDR ((uint16_t *)0x60000000) // FSMC BANK1基地址
 // AM29LV320 ID存储变量
@@ -94,6 +97,8 @@ uint16_t am29_cap_id = 0; // 容量ID
 /* 延迟全局变量 */
 static uint32_t g_ns_per_cycle = 0; // 单指令周期耗时（ns）
 static uint32_t g_tick_step_us = 0; // Tick递增步长（us，仅作为备用参数）
+
+const uint32_t BLOCK_64MB = 64 * 1024 * 1024; // 64MB
 
 // 文件信息结构体（存储.bin文件名称+大小）
 typedef struct
@@ -183,6 +188,7 @@ uint32_t rtc_to_unix_timestamp(RTC_DateTypeDef *date, RTC_TimeTypeDef *time);
 void delayns_init(void);
 void delayns(uint32_t ns);
 void delaycmd(void);
+void buz(void);
 
 static uint8_t Wait_Any_Key(uint32_t timeout_ms);
 
@@ -346,29 +352,7 @@ int main(void)
     // 启动时通过USART1发送hello（波特率115200）
     printf("AM29 Programmer By motozilog V1.0\r\n");
 
-    //	printf("蜂鸣器响3秒...START\r\n");
-
-    //	// 4000Hz 蜂鸣器控制 START
-    //	// 周期 = 250us，半周期 = 125us
-    //	const uint32_t half_period_us = 125;  // 125微秒
-    //	const uint32_t beep_duration_ms = 30000;  // 3秒
-    //	uint32_t start_time = HAL_GetTick();
-
-    //	while((HAL_GetTick() - start_time) < beep_duration_ms)
-    //	{
-    //			// 输出高电平（假设高电平驱动蜂鸣器）
-    //			HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, GPIO_PIN_SET);
-    //			delay_us(half_period_us);  // 125us延时
-    //
-    //			// 输出低电平
-    //			HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, GPIO_PIN_RESET);
-    //			delay_us(half_period_us);  // 125us延时
-    //	}
-
-    //	// 确保蜂鸣器关闭
-    //	HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, GPIO_PIN_RESET);
-
-    //	printf("蜂鸣器响3秒...END\r\n");
+    Set_A26_A31_All_Zero();
 
     /* USER CODE END 2 */
 
@@ -651,7 +635,8 @@ static void MX_GPIO_Init(void)
     HAL_GPIO_WritePin(GPIOB, LED_G_Pin | LED_R_Pin | A27_Pin | A28_Pin | A29_Pin | A30_Pin | A31_Pin, GPIO_PIN_RESET);
 
     /*Configure GPIO pin Output Level */
-    HAL_GPIO_WritePin(A26_GPIO_Port, A26_Pin, GPIO_PIN_RESET);
+    //    HAL_GPIO_WritePin(A25_GPIO_Port, A25_Pin, GPIO_PIN_RESET);
+    //    HAL_GPIO_WritePin(A26_GPIO_Port, A26_Pin, GPIO_PIN_RESET);
 
     /*Configure GPIO pins : UP_Pin DOWN_Pin LEFT_Pin RIGHT_Pin
                              OK_Pin CANCEL_Pin */
@@ -674,11 +659,18 @@ static void MX_GPIO_Init(void)
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(SDIO_CD_GPIO_Port, &GPIO_InitStruct);
 
+    /* ===== 配置A25 (PG14) ===== */
+    GPIO_InitStruct.Pin = A25_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(A25_GPIO_Port, &GPIO_InitStruct);
+
     /*Configure GPIO pin : A26_Pin */
     GPIO_InitStruct.Pin = A26_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     HAL_GPIO_Init(A26_GPIO_Port, &GPIO_InitStruct);
 
     // ===== 添加蜂鸣器引脚配置 =====
@@ -805,14 +797,17 @@ static void MX_FSMC_Init(void)
  */
 static void Set_A26_A31(uint32_t byte_address)
 {
-    uint8_t new_a26_a31 = (byte_address >> 26) & 0x3F;
+    // 从A25开始取7位（A25-A31）
+    uint32_t new_a25_a31 = (byte_address >> 26) & 0x7F; // 7位：0x7F = 01111111
 
-    HAL_GPIO_WritePin(A26_GPIO_Port, A26_Pin, (new_a26_a31 & 0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOB, A27_Pin, (new_a26_a31 & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOB, A28_Pin, (new_a26_a31 & 0x04) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOB, A29_Pin, (new_a26_a31 & 0x08) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOB, A30_Pin, (new_a26_a31 & 0x10) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOB, A31_Pin, (new_a26_a31 & 0x20) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    // A25 对应原来的 A26? 需要根据实际硬件连接调整
+    HAL_GPIO_WritePin(A25_GPIO_Port, A25_Pin, (new_a25_a31 & 0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(A26_GPIO_Port, A26_Pin, (new_a25_a31 & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(A27_GPIO_Port, A27_Pin, (new_a25_a31 & 0x04) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(A28_GPIO_Port, A28_Pin, (new_a25_a31 & 0x08) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(A29_GPIO_Port, A29_Pin, (new_a25_a31 & 0x10) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(A30_GPIO_Port, A30_Pin, (new_a25_a31 & 0x20) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(A31_GPIO_Port, A31_Pin, (new_a25_a31 & 0x40) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
 /**
@@ -821,12 +816,13 @@ static void Set_A26_A31(uint32_t byte_address)
  */
 static void Set_A26_A31_All_Zero(void)
 {
+    HAL_GPIO_WritePin(A25_GPIO_Port, A25_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(A26_GPIO_Port, A26_Pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOB, A27_Pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOB, A28_Pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOB, A29_Pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOB, A30_Pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOB, A31_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(A27_GPIO_Port, A27_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(A28_GPIO_Port, A28_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(A29_GPIO_Port, A29_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(A30_GPIO_Port, A30_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(A31_GPIO_Port, A31_Pin, GPIO_PIN_RESET);
 }
 
 uint8_t KEY_UP_Detect(void)
@@ -1495,11 +1491,10 @@ uint8_t AM29_Read_To_File(void)
     RTC_DateTypeDef read_end_date = {0};
 
     // ===== 新增：64MB分块相关变量 =====
-    const uint32_t BLOCK_64MB = 64 * 1024 * 1024; // 64MB
-    uint32_t current_block = 0;                   // 当前块号（0~3）
-    uint32_t block_start_addr = 0;                // 当前块的起始地址
-    uint32_t block_end_addr = BLOCK_64MB;         // 当前块的结束地址
-    uint32_t bytes_in_block = 0;                  // 当前块已读取字节数
+    uint32_t current_block = 0;           // 当前块号（0~3）
+    uint32_t block_start_addr = 0;        // 当前块的起始地址
+    uint32_t block_end_addr = BLOCK_64MB; // 当前块的结束地址
+    uint32_t bytes_in_block = 0;          // 当前块已读取字节数
 
     printf("\r\n===== 开始读取AM29芯片内容到TF卡 =====\r\n");
 
@@ -1774,6 +1769,11 @@ uint8_t AM29_Read_To_File(void)
     printfOled(3, 1, "%uKBytes", read_bytes / 1024);
     printfOled(7, 1, "Press any key");
     OLED_Refresh();
+
+    if (read_total_seconds > 60)
+    {
+        buz();
+    }
 
     return 0;
 }
@@ -2602,11 +2602,14 @@ uint8_t AM29_Chip_Erase(void)
 
     // ===== 计算芯片总容量和分块参数 =====
     uint32_t AM29_CAPACITY = AM29_Parse_CFI_Capacity(cap);
-    const uint32_t BLOCK_64MB = 64 * 1024 * 1024;       // 64MB
     uint32_t total_blocks = AM29_CAPACITY / BLOCK_64MB; // 总块数
     if (total_blocks == 0)
     {
         total_blocks = 1;
+    }
+    else if (total_blocks >= 2)
+    {
+        total_blocks = 2;
     }
     uint32_t chip_total_halfwords = AM29_CAPACITY >> 1; // 总半字数
 
@@ -2894,6 +2897,12 @@ uint8_t AM29_Chip_Erase(void)
         printfOled(1, 1, "Time:%us", erase_total_seconds);
         printfOled(7, 1, "Press any key");
         OLED_Refresh();
+
+        if (erase_total_seconds > 60)
+        {
+            buz();
+        }
+
         return 0; // 擦除成功
     }
     else
@@ -2905,6 +2914,12 @@ uint8_t AM29_Chip_Erase(void)
         printfOled(2, 1, "%lu", (unsigned long)error_count);
         printfOled(7, 1, "Press any key");
         OLED_Refresh();
+
+        if (erase_total_seconds > 60)
+        {
+            buz();
+        }
+
         return 2; // 状态错误
     }
 }
@@ -3261,6 +3276,10 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
     {
         total_blocks = 1;
     }
+    else if (total_blocks > 2)
+    {
+        total_blocks = 2;
+    }
 
     printf("AM29容量: %lu Bytes (%lu MB), 总块数: %u\r\n",
            (unsigned long)AM29_MAX_CAPACITY,
@@ -3386,9 +3405,15 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
     // 8. 分块读取文件并写入芯片
     printf("开始写入文件到芯片（分64MB块处理）...\r\n");
 
-    uint8_t read_buf[2] = {0}; // 8位缓冲区
-    uint16_t write_data = 0;   // 存储翻转后的16位数据
-    UINT br = 0;               // 实际读取字节数
+    uint8_t read_buf[512] = {0}; // 缓冲区，最大512字节用于Buffer Programming
+    UINT br = 0;                 // 实际读取字节数
+
+    // 判断是否使用Write Buffer Programming (仅对S70GL02，cap == 0x1C)
+    uint8_t use_buffer_program = (cap == 0x1C);
+    if (use_buffer_program)
+    {
+        printf("检测到S70GL02 (256M)芯片，启用Write Buffer Programming模式（每512字节为一个编程单元）\r\n");
+    }
 
     // 循环处理每个64MB块
     for (current_block = 0; current_block < total_blocks; current_block++)
@@ -3408,106 +3433,397 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
         // 8.2 写入当前块的数据
         while (bytes_in_block < BLOCK_64MB && written_bytes < file_size)
         {
-            // 读取2字节大端数据
-            br = 0;
-            memset(read_buf, 0, sizeof(read_buf));
-            res = f_read(&file, read_buf, 2, &br);
-            if (res != FR_OK)
+            if (use_buffer_program)
             {
-                printf("写入失败：读取文件数据失败，错误码：%d\r\n", res);
-                write_ret = 5;
-                break;
-            }
-            if (br == 0)
-                break; // 无数据可读，退出循环
+                // ===== Write Buffer Programming 模式 (针对S70GL02) =====
+                // 计算当前写入地址
+                uint32_t block_halfword_offset = bytes_in_block / 2;
+                uint32_t current_addr = block_start_addr + bytes_in_block;
+                uint32_t addr_in_block = bytes_in_block;
 
-            // 大端字节序转16位数据
-            write_data = ((uint16_t)read_buf[0] << 8) | read_buf[1];
+                // 检查是否是512字节对齐边界
+                uint32_t alignment_offset = addr_in_block % 512;
 
-            // 计算当前写入地址（在当前块内的半字偏移）
-            uint32_t block_halfword_offset = bytes_in_block / 2;
-            uint32_t fsmc_addr = (uint32_t)FSMC_NOR_BASE_ADDR + block_halfword_offset * 2;
-
-            // 执行写入命令序列
-            *(FSMC_NOR_BASE_ADDR + 0x555) = 0x00AA;
-            delaycmd();
-            *(FSMC_NOR_BASE_ADDR + 0x2AA) = 0x0055;
-            delaycmd();
-            *(FSMC_NOR_BASE_ADDR + 0x555) = 0x00A0;
-            delaycmd();
-
-            // 写入目标地址+数据（使用块内半字偏移）
-            *(FSMC_NOR_BASE_ADDR + block_halfword_offset) = write_data;
-            delaycmd();
-
-            // 等待写入完成
-            uint32_t timeout = 1000;
-            while (HAL_GPIO_ReadPin(RY_BY_PORT, RY_BY_PIN) == GPIO_PIN_RESET)
-            {
-                delaycmd();
-                if (--timeout == 0)
+                if (alignment_offset != 0)
                 {
-                    printf("写入超时：地址0x%08X (块内半字偏移0x%06X)\r\n",
-                           fsmc_addr, block_halfword_offset);
-                    *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29_RESET_CMD;
+                    // 这是文件尾部的情况
+                    uint32_t bytes_remaining_in_file = file_size - written_bytes;
+                    uint32_t bytes_to_next_boundary = 512 - alignment_offset;
+
+                    printf("文件尾部：剩余%lu字节，当前块内偏移%lu字节\r\n",
+                           (unsigned long)bytes_remaining_in_file,
+                           (unsigned long)alignment_offset);
+
+                    // 计算本次Buffer Programming的总大小（必须是2的倍数）
+                    uint32_t buffer_total_size = alignment_offset + bytes_remaining_in_file;
+                    // 确保是2的倍数（半字对齐）
+                    if (buffer_total_size % 2 != 0)
+                    {
+                        buffer_total_size++; // 向上取整到偶数
+                    }
+
+                    printf("本次Buffer Programming总大小：%lu字节 (%lu个半字)\r\n",
+                           (unsigned long)buffer_total_size,
+                           (unsigned long)(buffer_total_size / 2));
+
+                    // 创建缓冲区，全部填充0xFF
+                    uint8_t temp_buf[512] = {0};
+                    memset(temp_buf, 0xFF, buffer_total_size);
+
+                    // 回退文件指针到当前块的起始位置
+                    uint32_t block_start_pos_in_file = written_bytes - bytes_in_block;
+                    f_lseek(&file, block_start_pos_in_file);
+
+                    // 读取整个块的数据（包括已写部分和剩余部分）
+                    UINT br_tail = 0;
+                    res = f_read(&file, temp_buf, buffer_total_size, &br_tail);
+                    if (res != FR_OK || br_tail != buffer_total_size)
+                    {
+                        printf("读取块数据失败，错误码：%d\r\n", res);
+                        write_ret = 5;
+                        break;
+                    }
+
+                    // ===== 执行Buffer Programming =====
+                    // 注意：前几个命令需要在A26=0的地址空间执行
+
+                    // 步骤1: 设置A26=0, A27根据block（但前几个命令在bank1的固定地址）
+                    // 先设置A26=0, A27根据block
+                    uint8_t new_a26_a31 = (block_start_addr >> 26) & 0x3F;
+                    HAL_GPIO_WritePin(A26_GPIO_Port, A26_Pin, GPIO_PIN_RESET); // A26强制为0
+                    HAL_GPIO_WritePin(GPIOB, A27_Pin, (new_a26_a31 & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+                    // A28-A31保持之前的状态
+
+                    // 步骤2: 解锁序列1 (地址0x555)
+                    *(FSMC_NOR_BASE_ADDR + 0x555) = 0x00AA;
+                    delaycmd();
+
+                    // 步骤3: 解锁序列2 (地址0x2AA)
+                    *(FSMC_NOR_BASE_ADDR + 0x2AA) = 0x0055;
+                    delaycmd();
+
+                    // 步骤4: 写Buffer Program命令 (0x0025) 到目标地址的起始半字地址
+                    // 这里需要切换到正确的块地址来写入命令
+                    Set_A26_A31(block_start_addr); // 切换到目标块
+                    *(FSMC_NOR_BASE_ADDR + block_halfword_offset) = 0x0025;
+                    delaycmd();
+
+                    // 步骤5: 写入Word Count (需要保持在目标块)
+                    uint16_t word_count = (buffer_total_size / 2) - 1; // 半字数-1
+                    printf("Word Count: %u (0x%04X)，共%u个半字\r\n",
+                           word_count, word_count, word_count + 1);
+                    *(FSMC_NOR_BASE_ADDR + block_halfword_offset) = word_count;
+                    delaycmd();
+
+                    // 步骤6: 写入Buffer中的数据 (保持在目标块)
+                    for (uint32_t i = 0; i < buffer_total_size; i += 2)
+                    {
+                        uint16_t write_data = ((uint16_t)temp_buf[i] << 8) | temp_buf[i + 1];
+                        *(FSMC_NOR_BASE_ADDR + block_halfword_offset + (i / 2)) = write_data;
+                        delaycmd();
+                    }
+
+                    // 步骤7: 写入Program Buffer to Flash确认命令 (保持在目标块)
+                    *(FSMC_NOR_BASE_ADDR + block_halfword_offset) = 0x0029;
+                    delaycmd();
+
+                    // 等待编程完成 (保持在目标块)
+                    uint32_t timeout = 10000000;
+                    while (HAL_GPIO_ReadPin(RY_BY_PORT, RY_BY_PIN) == GPIO_PIN_RESET)
+                    {
+                        delaycmd();
+                        if (--timeout == 0)
+                        {
+                            printf("Buffer Programming超时：地址0x%08lX\r\n", (unsigned long)current_addr);
+                            *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29_RESET_CMD;
+                            write_ret = 5;
+                            break;
+                        }
+                    }
+
+                    if (write_ret != 0)
+                        break;
+
+                    // 更新已写入字节数
+                    written_bytes += bytes_remaining_in_file; // 只增加实际数据字节数
+                    bytes_in_block += buffer_total_size;      // 整个buffer都已编程
+                    block_written_bytes += buffer_total_size;
+
+                    printf("文件尾部处理完成：实际编程%lu字节（含%lu字节填充数据）\r\n",
+                           (unsigned long)buffer_total_size,
+                           (unsigned long)(buffer_total_size - bytes_remaining_in_file));
+
+                    // 文件已经读完，可以退出循环
+                    break;
+                }
+
+                // 确定本次Buffer Programming的大小（不超过512字节，不超过文件剩余，不超过当前块剩余）
+                uint32_t buffer_size = 512;
+                uint32_t bytes_remaining_in_block = BLOCK_64MB - bytes_in_block;
+                uint32_t bytes_remaining_in_file = file_size - written_bytes;
+
+                if (bytes_remaining_in_block < buffer_size)
+                {
+                    buffer_size = bytes_remaining_in_block;
+                }
+                if (bytes_remaining_in_file < buffer_size)
+                {
+                    buffer_size = bytes_remaining_in_file;
+                }
+
+                // 如果剩余字节数小于512，填充0xFFFF到512字节
+                uint32_t bytes_to_program = buffer_size;
+                uint32_t bytes_to_pad = 0;
+
+                if (buffer_size < 512)
+                {
+                    bytes_to_pad = 512 - buffer_size;
+                    printf("剩余%lu字节不足512，填充%lu字节0xFFFF\r\n",
+                           (unsigned long)buffer_size, (unsigned long)bytes_to_pad);
+                    buffer_size = 512; // 总编程大小为512字节
+                }
+
+                // 读取实际数据到缓冲区
+                memset(read_buf, 0xFF, sizeof(read_buf)); // 先全部填充0xFF
+
+                if (bytes_to_program > 0)
+                {
+                    // 读取实际数据
+                    res = f_read(&file, read_buf, bytes_to_program, &br);
+                    if (res != FR_OK || br != bytes_to_program)
+                    {
+                        printf("读取文件数据失败，错误码：%d\r\n", res);
+                        write_ret = 5;
+                        break;
+                    }
+                }
+
+                // 执行Write Buffer Programming命令序列
+                // 步骤1: 解锁序列1
+                uint8_t new_a26_a31 = (block_start_addr >> 26) & 0x3F;
+
+                HAL_GPIO_WritePin(A26_GPIO_Port, A26_Pin, GPIO_PIN_RESET);
+                HAL_GPIO_WritePin(GPIOB, A27_Pin, (new_a26_a31 & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+                *(FSMC_NOR_BASE_ADDR + 0x555) = 0x00AA;
+                delaycmd();
+
+                // 步骤2: 解锁序列2
+                *(FSMC_NOR_BASE_ADDR + 0x2AA) = 0x0055;
+                delaycmd();
+
+                // 步骤3: 写Buffer Program命令 (0x0025) 到目标地址的起始半字地址
+                Set_A26_A31(block_start_addr); // 切换到目标块
+                *(FSMC_NOR_BASE_ADDR + block_halfword_offset) = 0x0025;
+                delaycmd();
+
+                // 步骤4: 写入Word Count (实际要编程的半字数 - 1)
+                uint16_t word_count = (512 / 2) - 1; // 总是256个半字 - 1 = 255 (0x00FF)
+                *(FSMC_NOR_BASE_ADDR + block_halfword_offset) = word_count;
+                delaycmd();
+
+                // 步骤5: 写入Buffer中的数据 (按半字顺序)
+                for (uint32_t i = 0; i < 512; i += 2)
+                {
+                    uint16_t write_data = ((uint16_t)read_buf[i] << 8) | read_buf[i + 1];
+                    *(FSMC_NOR_BASE_ADDR + block_halfword_offset + (i / 2)) = write_data;
+                    delaycmd();
+                }
+
+                // 步骤6: 写入Program Buffer to Flash确认命令 (0x0029)
+                *(FSMC_NOR_BASE_ADDR + block_halfword_offset) = 0x0029;
+                delaycmd();
+
+                // 等待编程完成 (通过检查RY/BY#引脚)
+                uint32_t timeout = 10000000; // 超时
+                while (HAL_GPIO_ReadPin(RY_BY_PORT, RY_BY_PIN) == GPIO_PIN_RESET)
+                {
+                    delaycmd();
+                    if (--timeout == 0)
+                    {
+                        printf("Buffer Programming超时：地址0x%08lX\r\n", (unsigned long)current_addr);
+                        *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29_RESET_CMD;
+                        write_ret = 5;
+                        break;
+                    }
+                }
+
+                // 读取状态寄存器检查是否成功
+                //                uint16_t status = *(FSMC_NOR_BASE_ADDR + block_halfword_offset);
+                //                if (status & 0x20) // DQ5 = 1 表示超时错误
+                //                {
+                //                    printf("Buffer Programming错误：DQ5=1 (超时错误)，状态:0x%04X\r\n", status);
+                //                    // 复位芯片
+                //                    *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29_RESET_CMD;
+                //                    write_ret = 7;
+                //                    break;
+                //                }
+
+                // 更新已写入字节数 (只增加实际的有效数据字节数)
+                written_bytes += bytes_to_program;
+                bytes_in_block += bytes_to_program;
+                block_written_bytes += bytes_to_program;
+
+                // 如果填充了0xFFFF，需要跳过这些字节的位置（它们已经被写入，但不算在written_bytes中）
+                if (bytes_to_pad > 0)
+                {
+                    bytes_in_block += bytes_to_pad;
+                    block_written_bytes += bytes_to_pad;
+                }
+
+                // 进度打印
+                if (written_bytes % (0x40000) == 0 || written_bytes == file_size)
+                {
+                    RTC_TimeTypeDef sTime = {0};
+                    RTC_DateTypeDef sDate = {0};
+                    uint32_t current_unix = 0;
+                    uint32_t elapsed_sec = 0;
+                    float total_est_sec = 0.0f;
+
+                    // 获取当前时间并计算已耗时
+                    if (HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN) == HAL_OK)
+                    {
+                        HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
+                        current_unix = rtc_to_unix_timestamp(&sDate, &sTime);
+                    }
+                    else
+                    {
+                        current_unix = HAL_GetTick() / 1000;
+                    }
+                    elapsed_sec = current_unix - erase_start_unix;
+
+                    // 计算预计总耗时
+                    if (written_bytes > 0 && elapsed_sec > 0)
+                    {
+                        float progress = (float)written_bytes / file_size;
+                        total_est_sec = (float)elapsed_sec / progress;
+                    }
+
+                    printf("写入进度：%lu/%lu 字节 (%.1f%%) | 块: %u/%u | 已用时：%u 秒 | 预计总耗时：%.1f 秒\r\n",
+                           (unsigned long)written_bytes, (unsigned long)file_size,
+                           (float)written_bytes / file_size * 100,
+                           current_block + 1, total_blocks,
+                           elapsed_sec, total_est_sec);
+
+                    // 显示
+                    OLED_Clear();
+                    printfOled(0, 1, "Writing: %.1f%%", (float)written_bytes / file_size * 100);
+                    printfOled(1, 1, "Use: %uS", elapsed_sec);
+                    printfOled(2, 1, "Est: %.1fS", total_est_sec);
+                    printfOled(3, 1, "Block: %u/%u", current_block + 1, total_blocks);
+                    printfOled(4, 1, "Write: %uK", written_bytes / 1024);
+                    printfOled(5, 1, "Total: %uK", file_size / 1024);
+                    OLED_Refresh();
+
+                    // LED闪耀提示
+                    HAL_GPIO_TogglePin(LEDG_PORT, LEDG_PIN);
+                }
+            }
+            else
+            {
+                // ===== 原有单字节编程模式 (用于非S70GL02芯片) =====
+                // 读取2字节大端数据
+                uint8_t small_buf[2] = {0};
+                br = 0;
+                memset(small_buf, 0, sizeof(small_buf));
+                res = f_read(&file, small_buf, 2, &br);
+                if (res != FR_OK)
+                {
+                    printf("写入失败：读取文件数据失败，错误码：%d\r\n", res);
                     write_ret = 5;
                     break;
                 }
-            }
-            if (write_ret != 0)
-                break;
+                if (br == 0)
+                    break; // 无数据可读，退出循环
 
-            // 更新已写入字节数
-            written_bytes += br;
-            bytes_in_block += br;
-            block_written_bytes += br;
+                // 大端字节序转16位数据
+                uint16_t write_data = ((uint16_t)small_buf[0] << 8) | small_buf[1];
 
-            // 进度打印
-            if (written_bytes % (0x20000) == 0 || written_bytes == file_size)
-            {
-                RTC_TimeTypeDef sTime = {0};
-                RTC_DateTypeDef sDate = {0};
-                uint32_t current_unix = 0;
-                uint32_t elapsed_sec = 0;
-                float total_est_sec = 0.0f;
+                // 计算当前写入地址（在当前块内的半字偏移）
+                uint32_t block_halfword_offset = bytes_in_block / 2;
+                uint32_t fsmc_addr = (uint32_t)FSMC_NOR_BASE_ADDR + block_halfword_offset * 2;
 
-                // 获取当前时间并计算已耗时
-                if (HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN) == HAL_OK)
+                // 执行写入命令序列
+                *(FSMC_NOR_BASE_ADDR + 0x555) = 0x00AA;
+                delaycmd();
+                *(FSMC_NOR_BASE_ADDR + 0x2AA) = 0x0055;
+                delaycmd();
+                *(FSMC_NOR_BASE_ADDR + 0x555) = 0x00A0;
+                delaycmd();
+
+                // 写入目标地址+数据（使用块内半字偏移）
+                *(FSMC_NOR_BASE_ADDR + block_halfword_offset) = write_data;
+                delaycmd();
+
+                // 等待写入完成
+                uint32_t timeout = 1000;
+                while (HAL_GPIO_ReadPin(RY_BY_PORT, RY_BY_PIN) == GPIO_PIN_RESET)
                 {
-                    HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
-                    current_unix = rtc_to_unix_timestamp(&sDate, &sTime);
+                    delaycmd();
+                    if (--timeout == 0)
+                    {
+                        printf("写入超时：地址0x%08X (块内半字偏移0x%06X)\r\n",
+                               fsmc_addr, block_halfword_offset);
+                        *(FSMC_NOR_BASE_ADDR + 0x0000) = AM29_RESET_CMD;
+                        write_ret = 5;
+                        break;
+                    }
                 }
-                else
+                if (write_ret != 0)
+                    break;
+
+                // 更新已写入字节数
+                written_bytes += br;
+                bytes_in_block += br;
+                block_written_bytes += br;
+
+                // 进度打印
+                if (written_bytes % (0x20000) == 0 || written_bytes == file_size)
                 {
-                    current_unix = HAL_GetTick() / 1000;
+                    RTC_TimeTypeDef sTime = {0};
+                    RTC_DateTypeDef sDate = {0};
+                    uint32_t current_unix = 0;
+                    uint32_t elapsed_sec = 0;
+                    float total_est_sec = 0.0f;
+
+                    // 获取当前时间并计算已耗时
+                    if (HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN) == HAL_OK)
+                    {
+                        HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
+                        current_unix = rtc_to_unix_timestamp(&sDate, &sTime);
+                    }
+                    else
+                    {
+                        current_unix = HAL_GetTick() / 1000;
+                    }
+                    elapsed_sec = current_unix - erase_start_unix;
+
+                    // 计算预计总耗时
+                    if (written_bytes > 0 && elapsed_sec > 0)
+                    {
+                        float progress = (float)written_bytes / file_size;
+                        total_est_sec = (float)elapsed_sec / progress;
+                    }
+
+                    printf("写入进度：%lu/%lu 字节 (%.1f%%) | 块: %u/%u | 已用时：%u 秒 | 预计总耗时：%.1f 秒\r\n",
+                           (unsigned long)written_bytes, (unsigned long)file_size,
+                           (float)written_bytes / file_size * 100,
+                           current_block + 1, total_blocks,
+                           elapsed_sec, total_est_sec);
+
+                    // 显示
+                    OLED_Clear();
+                    printfOled(0, 1, "Writing: %.1f%%", (float)written_bytes / file_size * 100);
+                    printfOled(1, 1, "Use: %uS", elapsed_sec);
+                    printfOled(2, 1, "Est: %.1fS", total_est_sec);
+                    printfOled(3, 1, "Block: %u/%u", current_block + 1, total_blocks);
+                    printfOled(4, 1, "Write: %uK", written_bytes / 1024);
+                    printfOled(5, 1, "Total: %uK", file_size / 1024);
+                    OLED_Refresh();
+
+                    // LED闪耀提示
+                    HAL_GPIO_TogglePin(LEDG_PORT, LEDG_PIN);
                 }
-                elapsed_sec = current_unix - erase_start_unix;
-
-                // 计算预计总耗时
-                if (written_bytes > 0 && elapsed_sec > 0)
-                {
-                    float progress = (float)written_bytes / file_size;
-                    total_est_sec = (float)elapsed_sec / progress;
-                }
-
-                printf("写入进度：%lu/%lu 字节 (%.1f%%) | 块: %u/%u | 已用时：%u 秒 | 预计总耗时：%.1f 秒\r\n",
-                       (unsigned long)written_bytes, (unsigned long)file_size,
-                       (float)written_bytes / file_size * 100,
-                       current_block + 1, total_blocks,
-                       elapsed_sec, total_est_sec);
-
-                // 显示
-                OLED_Clear();
-                printfOled(0, 1, "Writing: %.1f%%", (float)written_bytes / file_size * 100);
-                printfOled(1, 1, "Use: %uS", elapsed_sec);
-                printfOled(2, 1, "Est: %.1fS", total_est_sec);
-                printfOled(3, 1, "Block: %u/%u", current_block + 1, total_blocks);
-                printfOled(4, 1, "Write: %uK", written_bytes / 1024);
-                printfOled(5, 1, "Total: %uK", file_size / 1024);
-                OLED_Refresh();
-
-                // LED闪耀提示
-                HAL_GPIO_TogglePin(LEDG_PORT, LEDG_PIN);
             }
         }
 
@@ -3543,14 +3859,8 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
         uint32_t verify_start_time = HAL_GetTick();
         uint32_t last_progress_time = verify_start_time;
 
-        // 计算总块数（64MB固定块大小）
-        uint32_t total_blocks = AM29_MAX_CAPACITY / BLOCK_64MB;
-        if (total_blocks == 0)
-        {
-            total_blocks = 1; // 对于4MB芯片，总块数为1
-        }
-
-        printf("芯片容量: 4MB, FSMC块大小: 64MB, 总块数: %u\r\n", total_blocks);
+        printf("芯片容量: %luMB, FSMC块大小: 64MB, 总块数: %u\r\n",
+               (unsigned long)(AM29_MAX_CAPACITY / 1024 / 1024), total_blocks);
 
         // 按64MB块循环验证
         for (current_block = 0; current_block < total_blocks; current_block++)
@@ -3652,7 +3962,7 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
                            speed,
                            elapsed_sec);
 
-                    // OLED显示（对于4MB芯片，进度变化会更明显）
+                    // OLED显示
                     OLED_Clear();
                     printfOled(0, 1, "Verifing: %.1f%%", percent);
                     printfOled(1, 1, "Block: %u/%u", current_block + 1, total_blocks);
@@ -3673,7 +3983,6 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
                         HAL_GPIO_WritePin(LEDG_PORT, LEDG_PIN, !HAL_GPIO_ReadPin(LEDG_PORT, LEDG_PIN)); // 绿灯闪烁
                     }
 
-                    //                printfOled(4, 1, "Speed: %.1fKB/s", speed);
                     printfOled(4, 1, "Time: %us", elapsed_sec);
                     OLED_Refresh();
 
@@ -3769,6 +4078,11 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
         printfOled(7, 1, "Press any key");
         OLED_Refresh();
 
+        if (erase_total_seconds > 60)
+        {
+            buz();
+        }
+
         return 0;
     }
     else if (write_ret == 6)
@@ -3783,6 +4097,11 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
         printfOled(3, 1, "%u", error_count);
         printfOled(7, 1, "Press any key");
         OLED_Refresh();
+        if (erase_total_seconds > 60)
+        {
+            buz();
+        }
+
         return write_ret;
     }
     else
@@ -3796,8 +4115,44 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
         printfOled(7, 1, "Press any key");
         OLED_Refresh();
 
+        if (erase_total_seconds > 60)
+        {
+            buz();
+        }
+
         return write_ret;
     }
+}
+
+void buz(void)
+{
+    if (1 == 1)
+    {
+        printf("蜂鸣器响3秒跳过\r\n");
+        return;
+    }
+
+    printf("蜂鸣器响3秒...START\r\n");
+    // 4000Hz 蜂鸣器控制 START
+    // 周期 = 250us，半周期 = 125us
+    const uint32_t half_period_us = 125;    // 125微秒
+    const uint32_t beep_duration_ms = 3000; // 3秒
+    uint32_t start_time = HAL_GetTick();
+
+    while ((HAL_GetTick() - start_time) < beep_duration_ms)
+    {
+        // 输出高电平（假设高电平驱动蜂鸣器）
+        HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, GPIO_PIN_SET);
+        delay_us(half_period_us); // 125us延时
+
+        // 输出低电平
+        HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, GPIO_PIN_RESET);
+        delay_us(half_period_us); // 125us延时
+    }
+    // 确保蜂鸣器关闭
+    HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, GPIO_PIN_RESET);
+
+    printf("蜂鸣器响3秒...END\r\n");
 }
 
 /**
