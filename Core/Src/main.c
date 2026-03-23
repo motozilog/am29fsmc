@@ -4101,11 +4101,11 @@ uint8_t AM29_Write_Data_From_File(const char *filename)
 
 void buz(void)
 {
-    if (1 == 1)
-    {
-        printf("·äÃùÆ÷Ïì3ÃëÌø¹ı\r\n");
-        return;
-    }
+//    if (1 == 1)
+//    {
+//        printf("·äÃùÆ÷Ïì3ÃëÌø¹ı\r\n");
+//        return;
+//    }
 
     printf("·äÃùÆ÷Ïì3Ãë...START\r\n");
     // 4000Hz ·äÃùÆ÷¿ØÖÆ START
